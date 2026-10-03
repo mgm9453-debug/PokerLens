@@ -1,0 +1,9 @@
+* text=auto
+*.py text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+outputs/poker_live_analyzer/assets/poker_reference/*.json -text
+*.npz -text
+*.png -text
+*.ico -text
+*.ttf -text

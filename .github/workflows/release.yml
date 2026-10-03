@@ -1,0 +1,91 @@
+name: 建置與發布 PokerLens
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      build_only:
+        description: 只驗證建置與保留產物，不建立 Release
+        type: boolean
+        default: true
+      publish:
+        description: 完成所有驗證後公開發布
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: pokerlens-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: outputs/poker_live_analyzer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.5'
+          cache: pip
+          cache-dependency-path: |
+            outputs/poker_live_analyzer/requirements.txt
+            outputs/poker_live_analyzer/requirements-build.txt
+      - name: 安裝相依套件與安裝程式編譯器
+        run: |
+          python -m pip install -r requirements-dev.txt
+          choco install innosetup --yes --no-progress
+      - name: 核對發布設定
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref_name }}
+          SIGNING_KEY_PRESENT: ${{ secrets.POKERLENS_SIGNING_KEY != '' }}
+        run: |
+          $Product = Get-Content release/product.json -Raw | ConvertFrom-Json
+          if ($Product.github_repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw '發布儲存庫格式無效，請填 owner/repository' }
+          if ($Product.github_repository -ne $env:SOURCE_REPOSITORY) { throw '只能發布到目前儲存庫' }
+          if ($Product.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw '正式版本格式無效' }
+          if ($env:RELEASE_EVENT -eq 'push' -and $env:RELEASE_REF -ne "v$($Product.version)") { throw '標籤與產品版本不一致' }
+          if ($env:SIGNING_KEY_PRESENT -ne 'true') { throw '尚未設定更新簽章金鑰 Secret，拒絕未簽章發布' }
+          if (-not $Product.update_public_key) { throw '尚未設定更新公鑰' }
+          "RELEASE_TAG=v$($Product.version)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "REPOSITORY=$($Product.github_repository)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: 執行測試
+        run: python -m pytest tests packaging/tests -q
+      - name: 建置桌面程式與安裝包
+        run: ./scripts/build.ps1
+      - name: 驗證無外部 Python 的正式啟動與資源
+        env:
+          POKERLENS_VERIFY_RELEASE: '1'
+        run: python packaging/smoke_frozen.py --root dist/install-root --data dist/smoke-data --launcher
+      - name: 產生更新包並簽章
+        env:
+          POKERLENS_SIGNING_KEY: ${{ secrets.POKERLENS_SIGNING_KEY }}
+        run: ./scripts/publish.ps1 -BaseUrl "https://github.com/$env:REPOSITORY/releases/download/$env:RELEASE_TAG"
+      - name: 保留建置產物
+        uses: actions/upload-artifact@v4
+        with:
+          name: PokerLens-已驗證發布資產
+          path: outputs/poker_live_analyzer/dist/release/*
+      - name: 建立草稿發布
+        if: github.event_name == 'push' || !inputs.build_only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:RELEASE_TAG --repo $env:REPOSITORY --verify-tag --draft --title "PokerLens $env:RELEASE_TAG" --notes-file release/notes.md --generate-notes
+          if ($LASTEXITCODE) { throw '草稿建立失敗' }
+          gh release upload $env:RELEASE_TAG dist/release/* --repo $env:REPOSITORY
+          if ($LASTEXITCODE) { throw '草稿資產上傳失敗；保留草稿供檢查' }
+      - name: 全部完成後公開發布
+        if: github.event_name == 'push' || (inputs.publish && !inputs.build_only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit $env:RELEASE_TAG --repo $env:REPOSITORY --draft=false
+          if ($LASTEXITCODE) { throw '公開發布失敗' }

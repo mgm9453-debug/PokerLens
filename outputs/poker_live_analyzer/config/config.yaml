@@ -1,0 +1,4 @@
+simulations: 100000
+seed: 42
+confidence_threshold: 0.85
+capture_fps: 30

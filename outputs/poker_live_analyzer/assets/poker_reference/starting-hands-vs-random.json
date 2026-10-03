@@ -1,0 +1,689 @@
+{
+  "_meta": {
+    "generator": "gen-vs-random.ts",
+    "derivedFrom": "data/preflop-equity.json",
+    "method": "class-vs-class matrix re-weighted over all 1225 opponent combos",
+    "samplesPerPair": 1000000,
+    "seed": 1,
+    "unit": "percent, win + tie/2",
+    "license": "CC0-1.0"
+  },
+  "rows": [
+    {
+      "hand": "AA",
+      "equityVsRandom": 85.2
+    },
+    {
+      "hand": "KK",
+      "equityVsRandom": 82.4
+    },
+    {
+      "hand": "QQ",
+      "equityVsRandom": 79.9
+    },
+    {
+      "hand": "JJ",
+      "equityVsRandom": 77.5
+    },
+    {
+      "hand": "TT",
+      "equityVsRandom": 75
+    },
+    {
+      "hand": "99",
+      "equityVsRandom": 72.1
+    },
+    {
+      "hand": "88",
+      "equityVsRandom": 69.2
+    },
+    {
+      "hand": "AKs",
+      "equityVsRandom": 67.1
+    },
+    {
+      "hand": "AQs",
+      "equityVsRandom": 66.2
+    },
+    {
+      "hand": "77",
+      "equityVsRandom": 66.2
+    },
+    {
+      "hand": "AJs",
+      "equityVsRandom": 65.4
+    },
+    {
+      "hand": "AKo",
+      "equityVsRandom": 65.3
+    },
+    {
+      "hand": "ATs",
+      "equityVsRandom": 64.6
+    },
+    {
+      "hand": "AQo",
+      "equityVsRandom": 64.4
+    },
+    {
+      "hand": "AJo",
+      "equityVsRandom": 63.6
+    },
+    {
+      "hand": "KQs",
+      "equityVsRandom": 63.4
+    },
+    {
+      "hand": "66",
+      "equityVsRandom": 63.3
+    },
+    {
+      "hand": "A9s",
+      "equityVsRandom": 62.8
+    },
+    {
+      "hand": "ATo",
+      "equityVsRandom": 62.7
+    },
+    {
+      "hand": "KJs",
+      "equityVsRandom": 62.6
+    },
+    {
+      "hand": "A8s",
+      "equityVsRandom": 61.9
+    },
+    {
+      "hand": "KTs",
+      "equityVsRandom": 61.8
+    },
+    {
+      "hand": "KQo",
+      "equityVsRandom": 61.4
+    },
+    {
+      "hand": "A7s",
+      "equityVsRandom": 61
+    },
+    {
+      "hand": "A9o",
+      "equityVsRandom": 60.8
+    },
+    {
+      "hand": "KJo",
+      "equityVsRandom": 60.6
+    },
+    {
+      "hand": "QJs",
+      "equityVsRandom": 60.3
+    },
+    {
+      "hand": "55",
+      "equityVsRandom": 60.3
+    },
+    {
+      "hand": "K9s",
+      "equityVsRandom": 60
+    },
+    {
+      "hand": "A6s",
+      "equityVsRandom": 59.9
+    },
+    {
+      "hand": "A5s",
+      "equityVsRandom": 59.9
+    },
+    {
+      "hand": "A8o",
+      "equityVsRandom": 59.9
+    },
+    {
+      "hand": "KTo",
+      "equityVsRandom": 59.7
+    },
+    {
+      "hand": "QTs",
+      "equityVsRandom": 59.5
+    },
+    {
+      "hand": "A4s",
+      "equityVsRandom": 59
+    },
+    {
+      "hand": "A7o",
+      "equityVsRandom": 58.9
+    },
+    {
+      "hand": "K8s",
+      "equityVsRandom": 58.3
+    },
+    {
+      "hand": "A3s",
+      "equityVsRandom": 58.2
+    },
+    {
+      "hand": "QJo",
+      "equityVsRandom": 58.1
+    },
+    {
+      "hand": "K9o",
+      "equityVsRandom": 57.8
+    },
+    {
+      "hand": "Q9s",
+      "equityVsRandom": 57.7
+    },
+    {
+      "hand": "A6o",
+      "equityVsRandom": 57.7
+    },
+    {
+      "hand": "A5o",
+      "equityVsRandom": 57.7
+    },
+    {
+      "hand": "K7s",
+      "equityVsRandom": 57.5
+    },
+    {
+      "hand": "JTs",
+      "equityVsRandom": 57.5
+    },
+    {
+      "hand": "A2s",
+      "equityVsRandom": 57.4
+    },
+    {
+      "hand": "QTo",
+      "equityVsRandom": 57.3
+    },
+    {
+      "hand": "44",
+      "equityVsRandom": 57
+    },
+    {
+      "hand": "A4o",
+      "equityVsRandom": 56.7
+    },
+    {
+      "hand": "K6s",
+      "equityVsRandom": 56.6
+    },
+    {
+      "hand": "Q8s",
+      "equityVsRandom": 56
+    },
+    {
+      "hand": "K8o",
+      "equityVsRandom": 56
+    },
+    {
+      "hand": "K5s",
+      "equityVsRandom": 55.8
+    },
+    {
+      "hand": "A3o",
+      "equityVsRandom": 55.8
+    },
+    {
+      "hand": "J9s",
+      "equityVsRandom": 55.7
+    },
+    {
+      "hand": "Q9o",
+      "equityVsRandom": 55.4
+    },
+    {
+      "hand": "JTo",
+      "equityVsRandom": 55.3
+    },
+    {
+      "hand": "K7o",
+      "equityVsRandom": 55.2
+    },
+    {
+      "hand": "K4s",
+      "equityVsRandom": 54.9
+    },
+    {
+      "hand": "A2o",
+      "equityVsRandom": 54.9
+    },
+    {
+      "hand": "Q7s",
+      "equityVsRandom": 54.3
+    },
+    {
+      "hand": "K6o",
+      "equityVsRandom": 54.2
+    },
+    {
+      "hand": "K3s",
+      "equityVsRandom": 54.1
+    },
+    {
+      "hand": "J8s",
+      "equityVsRandom": 54
+    },
+    {
+      "hand": "T9s",
+      "equityVsRandom": 54
+    },
+    {
+      "hand": "33",
+      "equityVsRandom": 53.7
+    },
+    {
+      "hand": "Q6s",
+      "equityVsRandom": 53.6
+    },
+    {
+      "hand": "Q8o",
+      "equityVsRandom": 53.6
+    },
+    {
+      "hand": "K5o",
+      "equityVsRandom": 53.3
+    },
+    {
+      "hand": "K2s",
+      "equityVsRandom": 53.2
+    },
+    {
+      "hand": "J9o",
+      "equityVsRandom": 53.2
+    },
+    {
+      "hand": "Q5s",
+      "equityVsRandom": 52.8
+    },
+    {
+      "hand": "J7s",
+      "equityVsRandom": 52.3
+    },
+    {
+      "hand": "T8s",
+      "equityVsRandom": 52.3
+    },
+    {
+      "hand": "K4o",
+      "equityVsRandom": 52.3
+    },
+    {
+      "hand": "Q4s",
+      "equityVsRandom": 51.9
+    },
+    {
+      "hand": "Q7o",
+      "equityVsRandom": 51.8
+    },
+    {
+      "hand": "T9o",
+      "equityVsRandom": 51.5
+    },
+    {
+      "hand": "J8o",
+      "equityVsRandom": 51.5
+    },
+    {
+      "hand": "K3o",
+      "equityVsRandom": 51.4
+    },
+    {
+      "hand": "Q3s",
+      "equityVsRandom": 51
+    },
+    {
+      "hand": "Q6o",
+      "equityVsRandom": 51
+    },
+    {
+      "hand": "98s",
+      "equityVsRandom": 50.8
+    },
+    {
+      "hand": "J6s",
+      "equityVsRandom": 50.6
+    },
+    {
+      "hand": "T7s",
+      "equityVsRandom": 50.6
+    },
+    {
+      "hand": "K2o",
+      "equityVsRandom": 50.5
+    },
+    {
+      "hand": "22",
+      "equityVsRandom": 50.3
+    },
+    {
+      "hand": "Q2s",
+      "equityVsRandom": 50.2
+    },
+    {
+      "hand": "Q5o",
+      "equityVsRandom": 50.1
+    },
+    {
+      "hand": "J5s",
+      "equityVsRandom": 50
+    },
+    {
+      "hand": "T8o",
+      "equityVsRandom": 49.7
+    },
+    {
+      "hand": "J7o",
+      "equityVsRandom": 49.7
+    },
+    {
+      "hand": "J4s",
+      "equityVsRandom": 49.1
+    },
+    {
+      "hand": "97s",
+      "equityVsRandom": 49.1
+    },
+    {
+      "hand": "Q4o",
+      "equityVsRandom": 49.1
+    },
+    {
+      "hand": "T6s",
+      "equityVsRandom": 48.9
+    },
+    {
+      "hand": "J3s",
+      "equityVsRandom": 48.2
+    },
+    {
+      "hand": "Q3o",
+      "equityVsRandom": 48.2
+    },
+    {
+      "hand": "98o",
+      "equityVsRandom": 48.1
+    },
+    {
+      "hand": "87s",
+      "equityVsRandom": 47.9
+    },
+    {
+      "hand": "T7o",
+      "equityVsRandom": 47.9
+    },
+    {
+      "hand": "J6o",
+      "equityVsRandom": 47.8
+    },
+    {
+      "hand": "J2s",
+      "equityVsRandom": 47.4
+    },
+    {
+      "hand": "96s",
+      "equityVsRandom": 47.4
+    },
+    {
+      "hand": "Q2o",
+      "equityVsRandom": 47.3
+    },
+    {
+      "hand": "T5s",
+      "equityVsRandom": 47.2
+    },
+    {
+      "hand": "J5o",
+      "equityVsRandom": 47.2
+    },
+    {
+      "hand": "T4s",
+      "equityVsRandom": 46.5
+    },
+    {
+      "hand": "97o",
+      "equityVsRandom": 46.3
+    },
+    {
+      "hand": "86s",
+      "equityVsRandom": 46.2
+    },
+    {
+      "hand": "J4o",
+      "equityVsRandom": 46.2
+    },
+    {
+      "hand": "T6o",
+      "equityVsRandom": 46.1
+    },
+    {
+      "hand": "T3s",
+      "equityVsRandom": 45.7
+    },
+    {
+      "hand": "95s",
+      "equityVsRandom": 45.7
+    },
+    {
+      "hand": "76s",
+      "equityVsRandom": 45.4
+    },
+    {
+      "hand": "J3o",
+      "equityVsRandom": 45.3
+    },
+    {
+      "hand": "87o",
+      "equityVsRandom": 45.1
+    },
+    {
+      "hand": "T2s",
+      "equityVsRandom": 44.8
+    },
+    {
+      "hand": "85s",
+      "equityVsRandom": 44.6
+    },
+    {
+      "hand": "96o",
+      "equityVsRandom": 44.5
+    },
+    {
+      "hand": "J2o",
+      "equityVsRandom": 44.4
+    },
+    {
+      "hand": "T5o",
+      "equityVsRandom": 44.2
+    },
+    {
+      "hand": "94s",
+      "equityVsRandom": 43.9
+    },
+    {
+      "hand": "75s",
+      "equityVsRandom": 43.7
+    },
+    {
+      "hand": "T4o",
+      "equityVsRandom": 43.5
+    },
+    {
+      "hand": "93s",
+      "equityVsRandom": 43.3
+    },
+    {
+      "hand": "86o",
+      "equityVsRandom": 43.2
+    },
+    {
+      "hand": "65s",
+      "equityVsRandom": 43.1
+    },
+    {
+      "hand": "84s",
+      "equityVsRandom": 42.7
+    },
+    {
+      "hand": "95o",
+      "equityVsRandom": 42.7
+    },
+    {
+      "hand": "T3o",
+      "equityVsRandom": 42.6
+    },
+    {
+      "hand": "92s",
+      "equityVsRandom": 42.4
+    },
+    {
+      "hand": "76o",
+      "equityVsRandom": 42.3
+    },
+    {
+      "hand": "74s",
+      "equityVsRandom": 41.8
+    },
+    {
+      "hand": "T2o",
+      "equityVsRandom": 41.7
+    },
+    {
+      "hand": "54s",
+      "equityVsRandom": 41.5
+    },
+    {
+      "hand": "85o",
+      "equityVsRandom": 41.4
+    },
+    {
+      "hand": "64s",
+      "equityVsRandom": 41.3
+    },
+    {
+      "hand": "83s",
+      "equityVsRandom": 40.9
+    },
+    {
+      "hand": "94o",
+      "equityVsRandom": 40.7
+    },
+    {
+      "hand": "75o",
+      "equityVsRandom": 40.5
+    },
+    {
+      "hand": "82s",
+      "equityVsRandom": 40.3
+    },
+    {
+      "hand": "73s",
+      "equityVsRandom": 40
+    },
+    {
+      "hand": "93o",
+      "equityVsRandom": 40
+    },
+    {
+      "hand": "65o",
+      "equityVsRandom": 39.9
+    },
+    {
+      "hand": "53s",
+      "equityVsRandom": 39.7
+    },
+    {
+      "hand": "63s",
+      "equityVsRandom": 39.5
+    },
+    {
+      "hand": "84o",
+      "equityVsRandom": 39.4
+    },
+    {
+      "hand": "92o",
+      "equityVsRandom": 39.1
+    },
+    {
+      "hand": "43s",
+      "equityVsRandom": 38.6
+    },
+    {
+      "hand": "74o",
+      "equityVsRandom": 38.5
+    },
+    {
+      "hand": "72s",
+      "equityVsRandom": 38.2
+    },
+    {
+      "hand": "54o",
+      "equityVsRandom": 38.1
+    },
+    {
+      "hand": "64o",
+      "equityVsRandom": 38
+    },
+    {
+      "hand": "52s",
+      "equityVsRandom": 37.8
+    },
+    {
+      "hand": "62s",
+      "equityVsRandom": 37.7
+    },
+    {
+      "hand": "83o",
+      "equityVsRandom": 37.5
+    },
+    {
+      "hand": "42s",
+      "equityVsRandom": 36.8
+    },
+    {
+      "hand": "82o",
+      "equityVsRandom": 36.8
+    },
+    {
+      "hand": "73o",
+      "equityVsRandom": 36.6
+    },
+    {
+      "hand": "53o",
+      "equityVsRandom": 36.3
+    },
+    {
+      "hand": "63o",
+      "equityVsRandom": 36.1
+    },
+    {
+      "hand": "32s",
+      "equityVsRandom": 36
+    },
+    {
+      "hand": "43o",
+      "equityVsRandom": 35.1
+    },
+    {
+      "hand": "72o",
+      "equityVsRandom": 34.6
+    },
+    {
+      "hand": "52o",
+      "equityVsRandom": 34.3
+    },
+    {
+      "hand": "62o",
+      "equityVsRandom": 34.1
+    },
+    {
+      "hand": "42o",
+      "equityVsRandom": 33.2
+    },
+    {
+      "hand": "32o",
+      "equityVsRandom": 32.3
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "PokerLens",
+  "publisher": "天選之仁",
+  "version": "1.0.1",
+  "app_id": "PokerLens",
+  "github_repository": "mgm9453-debug/PokerLens",
+  "update_public_key": "AIUTyLogPJz8q96J9hS8skED43Ie7lC6LASn3CasQjY=",
+  "channel": "stable",
+  "minimum_windows": "Windows 10 22H2 x64",
+  "icon": "assets/PokerLens.ico"
+}

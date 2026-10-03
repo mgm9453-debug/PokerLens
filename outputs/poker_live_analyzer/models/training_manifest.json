@@ -1,0 +1,44 @@
+{
+  "source": "本機靜態標準牌面圖集，無即時暗牌資料",
+  "source_sha256": "fd55bb5756c576ea64849c47d3b5d7d99712b475e2255405d0da58391f55eb7f",
+  "visible_cards": 52,
+  "template_counts": {
+    "rank": 312,
+    "suit": 816
+  },
+  "training_angles": [
+    -8,
+    0,
+    8
+  ],
+  "training_shifts": [
+    0,
+    0.5
+  ],
+  "rank_heights": [
+    28,
+    36,
+    42,
+    48
+  ],
+  "suit_heights": [
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28
+  ],
+  "limits": "同一視覺樣式；合成留出驗證不等於五十二牌實機驗證"
+}

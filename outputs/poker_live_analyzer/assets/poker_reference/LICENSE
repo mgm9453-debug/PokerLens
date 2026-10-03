@@ -1,0 +1,14 @@
+CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+
+The datasets in this directory — preflop-equity.json and
+starting-hands-vs-random.json — are dedicated to the public domain.
+
+To the extent possible under law, poker.yoga has waived all copyright and
+related or neighboring rights to these datasets. You may copy, modify and
+distribute them, including for commercial purposes, without asking permission
+and without attribution.
+
+Full text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+The source code in this repository is licensed separately, under MIT — see the
+LICENSE file at the repository root.
