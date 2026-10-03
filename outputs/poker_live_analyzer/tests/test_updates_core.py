@@ -370,7 +370,7 @@ def test_update_snapshot_preserves_original_contents(tmp_path):
     for name in ('profiles','ranges'):
         (data/name).mkdir()
         (data/name/'user.json').write_text('{"value":2}')
-    (data/'秘密.txt').write_text('不應複製')
+    (data/'秘密.txt').write_text('不應複製', encoding='utf-8')
     backup = snapshot_user_data(data, '1.0.0', '1.1.0')
     assert database.read_bytes() == original
     with sqlite3.connect(backup/'history.sqlite3') as connection:
