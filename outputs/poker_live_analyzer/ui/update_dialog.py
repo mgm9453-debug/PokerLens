@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
-                              QDialogButtonBox, QProgressBar, QWidget, QFileDialog)
+                              QDialogButtonBox, QProgressBar, QWidget, QFileDialog, QScrollArea)
 from .fonts import interface_font
 
 
@@ -58,7 +58,11 @@ class UpdateDialog(QDialog):
         self.notes = label
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
-        layout.addWidget(label)
+        notes_scroll = QScrollArea()
+        notes_scroll.setWidgetResizable(True)
+        notes_scroll.setMaximumHeight(180)
+        notes_scroll.setWidget(label)
+        layout.addWidget(notes_scroll)
         self.status = QLabel('下載完成後將關閉程式並啟動更新工具。')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
