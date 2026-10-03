@@ -10,7 +10,7 @@ if ($Version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { 
 $ProductPath = Join-Path $Project 'release/product.json'
 $Original = [IO.File]::ReadAllText($ProductPath)
 $Product = $Original | ConvertFrom-Json
-if ([version]$Version -le [version]$Product.version) { throw '新版本必須高於目前版本；已發布版本不可覆寫' }
+if ([version]$Version -lt [version]$Product.version) { throw '不可發布低於目前版本的版本' }
 $Tag = "v$Version"
 $Origin = git remote get-url origin
 if ($LASTEXITCODE -or $Origin -notmatch '^https://github\.com/mgm9453-debug/PokerLens(?:\.git)?$') { throw '遠端儲存庫不符' }
@@ -25,6 +25,8 @@ foreach ($Path in $Changed) {
     if ($Path -notmatch '^(outputs/poker_live_analyzer/|\.github/|README\.md$|\.gitignore$)') { throw "發現專案以外的修改，請先處理：$Path" }
 }
 if (-not (Test-Path (Join-Path $Project 'release/notes.md'))) { throw '缺少本次更新說明' }
+$Notes = Get-Content (Join-Path $Project 'release/notes.md') -Raw
+if ($Notes -notmatch [regex]::Escape("PokerLens $Version")) { throw '請先將更新說明改為本次發布版本，避免送出舊版內容' }
 $Product.version = $Version
 [IO.File]::WriteAllText($ProductPath, ($Product | ConvertTo-Json -Depth 10) + "`n", [Text.UTF8Encoding]::new($false))
 try {
@@ -35,8 +37,11 @@ try {
     Set-Location $RepositoryRoot
     git add -- .github .gitignore README.md outputs/poker_live_analyzer
     if ($LASTEXITCODE) { throw '準備提交失敗' }
-    git commit -m "發布 $Tag"
-    if ($LASTEXITCODE) { throw '提交失敗' }
+    git diff --cached --quiet
+    if ($LASTEXITCODE -eq 1) {
+        git commit -m "發布 $Tag"
+        if ($LASTEXITCODE) { throw '提交失敗' }
+    } elseif ($LASTEXITCODE -ne 0) { throw '檢查提交內容失敗' }
     git push origin HEAD:main
     if ($LASTEXITCODE) { throw '推送失敗，保留本機提交；請處理遠端差異後重試，勿強制推送' }
     git tag -a $Tag -m "PokerLens $Tag"
