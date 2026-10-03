@@ -82,6 +82,8 @@ jobs:
           if ($LASTEXITCODE) { throw '草稿建立失敗' }
           gh release upload $env:RELEASE_TAG dist/release/* --repo $env:REPOSITORY
           if ($LASTEXITCODE) { throw '草稿資產上傳失敗；保留草稿供檢查' }
+          python scripts/verify_uploaded_release.py --repository $env:REPOSITORY --tag $env:RELEASE_TAG --directory dist/release
+          if ($LASTEXITCODE) { throw '遠端草稿驗證失敗；不公開發布' }
       - name: 全部完成後公開發布
         if: github.event_name == 'push' || (inputs.publish && !inputs.build_only)
         env:
