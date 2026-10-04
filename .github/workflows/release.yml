@@ -21,6 +21,9 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
     defaults:
       run:
         shell: pwsh

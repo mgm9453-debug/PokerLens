@@ -1,5 +1,7 @@
 param([string]$Python = 'python', [switch]$SkipInstaller, [string]$ISCC = '')
 $ErrorActionPreference = 'Stop'
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $Project = Split-Path $PSScriptRoot -Parent
 $PythonCommand = Get-Command $Python -ErrorAction SilentlyContinue
 if ($PythonCommand) { $Python = $PythonCommand.Source }

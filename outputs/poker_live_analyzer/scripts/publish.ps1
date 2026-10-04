@@ -1,5 +1,7 @@
 param([string]$Python = 'python', [string]$BaseUrl = '', [string]$PreviousManifest = '', [string]$SigningKeyFile = '', [switch]$Unsigned)
 $ErrorActionPreference = 'Stop'
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $Project = Split-Path $PSScriptRoot -Parent
 $PythonCommand = Get-Command $Python -ErrorAction SilentlyContinue
 if ($PythonCommand) { $Python = $PythonCommand.Source }

@@ -3,6 +3,8 @@ param(
     [string]$Python = 'python'
 )
 $ErrorActionPreference = 'Stop'
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $Project = Split-Path $PSScriptRoot -Parent
 $RepositoryRoot = Split-Path (Split-Path $Project -Parent) -Parent
 Set-Location $RepositoryRoot
