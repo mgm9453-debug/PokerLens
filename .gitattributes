@@ -7,3 +7,4 @@ outputs/poker_live_analyzer/assets/poker_reference/*.json -text
 *.png -text
 *.ico -text
 *.ttf -text
+*.otf -text
