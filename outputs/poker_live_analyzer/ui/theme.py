@@ -6,11 +6,11 @@ COLORS = {'background':'#08090A','card':'#151617','secondary':'#1B1C1E',
 
 """黑金桌面介面的共用樣式，保留清楚的文字與操作狀態。"""
 STYLE='''
-QWidget {background:#0D0C0A;color:#F2EEE5;font-family:"Inter","GenSenRounded2 TW","Noto Sans TC";font-size:15px;}
+QWidget {background:#0D0C0A;color:#F2EEE5;font-family:"Inter","Noto Sans TC","GenSenRounded2 TW";font-size:15px;}
 QMainWindow {background:#0D0C0A;}
 QWidget#surfacePanel {background:#15120F;border:1px solid #9B7133;border-radius:16px;}
 QLabel#sectionTitle {background:transparent;color:#E8CA8A;font-size:18px;font-weight:600;padding:4px;}
-QPushButton {background:#15120F;border:1px solid #9B7133;border-radius:10px;padding:8px 14px;color:#E8CA8A;font-weight:500;}
+QPushButton {background:#15120F;border:1px solid #9B7133;border-radius:10px;padding:8px 14px;color:#F2EEE5;font-weight:400;}
 QPushButton:hover {background:#292016;border-color:#D8AE62;}
 QPushButton:pressed {background:#1C1712;}
 QPushButton:disabled {color:#746D61;}
@@ -42,5 +42,6 @@ def card_style(color, size=18, strong=False, featured=False):
     """共用圓潤卡片，裝飾只改視覺，不影響資料。"""
     background=(f'qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #30291D,stop:0.25 {COLORS["card"]},stop:0.8 #101112,stop:1 #282116)' if featured else
                 f'qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1D1E20,stop:1 {COLORS["card"]})')
-    return (f'font-size:{size}px;font-weight:{500 if strong else 400};color:{color};'
+    if featured:background='transparent'
+    return (f'font-size:{size}px;font-weight:{600 if strong else 400};color:{color};'
             f'background:{background};padding:14px;border:1px solid {COLORS["border"]};border-radius:16px;')

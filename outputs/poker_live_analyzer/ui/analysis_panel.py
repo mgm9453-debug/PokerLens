@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QEvent, QRect
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTableWidget, QTableWidgetItem, QCheckBox, QScrollArea,QBoxLayout
 from .hand_picture import hand_picture
 from .theme import COLORS, card_style
+from .reference_style import ReferenceLabel
 
 
 class SummaryScrollArea(QScrollArea):
@@ -26,7 +27,8 @@ class SummaryScrollArea(QScrollArea):
         margins=self.widget().layout().contentsMargins() if self.widget() else None
         width=max(100,self.viewport().width()-(margins.left()+margins.right() if margins else 18))
         text_height=self.label.heightForWidth(width)
-        height=max(70,text_height+(margins.top()+margins.bottom() if margins else 18)+4)
+        height=max(54,min(96,text_height+(margins.top()+margins.bottom() if margins else 18)+4))
+        self.label.setToolTip(self.label.text())
         if self.minimumHeight()!=height or self.maximumHeight()!=height:self.setFixedHeight(height)
 
 
@@ -36,21 +38,25 @@ class AnalysisPanel(QWidget):
         self.display_options={}
         self.dark_theme=False
         self.fixed_layout=False
+        self._view_scale=1.0
         layout = QVBoxLayout(self)
         heading = QLabel('分析結果')
         heading.setStyleSheet('font-size: 20px; font-weight: bold; color: #203b50;')
         layout.addWidget(heading)
         self.probabilities=QWidget()
         probabilities_layout=QHBoxLayout(self.probabilities)
-        self.win_label=QLabel()
-        self.tie_label=QLabel()
+        probabilities_layout.setContentsMargins(0,0,0,0)
+        probabilities_layout.setSpacing(12)
+        self.win_label=ReferenceLabel(kind="win")
+        self.tie_label=ReferenceLabel(kind="tie")
         self.win_label.setStyleSheet('font-size: 32px; font-weight: bold; color: #087d55; background: #e5f6ee; padding: 10px;')
         self.tie_label.setStyleSheet('font-size: 32px; font-weight: bold; color: #7045b4; background: #f0eafa; padding: 10px;')
         probabilities_layout.addWidget(self.win_label)
         probabilities_layout.addWidget(self.tie_label)
         layout.addWidget(self.probabilities)
         self.probabilities.hide()
-        self.action_label=QLabel('等待確認')
+        self.action_label=ReferenceLabel('等待確認',kind='action')
+        self.action_label.setAlignment(Qt.AlignCenter)
         self.action_label.setWordWrap(True)
         layout.addWidget(self.action_label)
         self.set_action('等待確認','#9a6500')
@@ -60,6 +66,7 @@ class AnalysisPanel(QWidget):
         self.mode_notice.setWordWrap(True)
         self.mode_notice.setStyleSheet('font-size:16px;color:#ffc66d;padding:8px;')
         layout.insertWidget(2,self.mode_notice)
+        self.mode_notice.hide()
         self.issue_label=QLabel()
         self.issue_label.setWordWrap(True)
         self.issue_label.setStyleSheet('font-size:17px;color:#FFFFFF;background:#1C1712;border:1px solid #9B7133;border-radius:8px;padding:12px;')
@@ -103,7 +110,7 @@ class AnalysisPanel(QWidget):
         self.summary_scroll.setMinimumHeight(50)
         self.summary_scroll.setMaximumHeight(90)
         layout.addWidget(self.summary_scroll,1)
-        layout.addWidget(self.threat_matrix)
+        layout.addWidget(self.threat_matrix,1)
         self.details_toggle = QCheckBox('查看詳細數據與下注情境')
         layout.addWidget(self.details_toggle)
         self.details = QWidget()
@@ -131,14 +138,16 @@ class AnalysisPanel(QWidget):
 
     def enable_fixed_layout(self):
         self.fixed_layout=True
+        self.layout().setSpacing(10)
+        self.layout().setAlignment(Qt.Alignment())
         for widget in (self.action_label,self.probabilities,self.issue_label,self.sizing_label,self.card_strip,self.summary_scroll):
             policy=widget.sizePolicy()
             policy.setRetainSizeWhenHidden(True)
             widget.setSizePolicy(policy)
-        self.action_label.setFixedHeight(96)
-        self.probabilities.setFixedHeight(96)
-        self.issue_label.setFixedHeight(100)
-        self.sizing_label.setFixedHeight(80)
+        self.action_label.setFixedHeight(90)
+        self.probabilities.setFixedHeight(110)
+        self.issue_label.setFixedHeight(82)
+        self.sizing_label.setFixedHeight(52)
         self.card_strip.setFixedHeight(88)
         if self.dark_theme:
             self.summary_scroll.setMinimumHeight(70)
@@ -149,6 +158,15 @@ class AnalysisPanel(QWidget):
             self.summary_scroll.setFixedHeight(70)
 
     def resizeEvent(self,event):
+        if self.dark_theme and self.fixed_layout:
+            scale=max(.75,min(1.3,self.width()/700,self.window().height()/960))
+            self._view_scale=scale
+            self.action_label.setFixedHeight(round(74*scale))
+            self.probabilities.setFixedHeight(round(92*scale))
+            self.issue_label.setFixedHeight(round(72*scale))
+            self.sizing_label.setFixedHeight(round(44*scale))
+            self.layout().setSpacing(round(8*scale))
+            self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
         self.summary_layout.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
         for index,stretch in enumerate((1,1,0) if wide else (0,0,1)):
@@ -370,15 +388,16 @@ class AnalysisPanel(QWidget):
             color=accent(color)
         self.action_label.setText(text)
         self.action_label.setProperty('role_color',role)
-        size=self.display_options.get('action_font',30)
+        self.action_label.setToolTip(text)
+        size=round(self.display_options.get('action_font',30)*self._view_scale)
         background=COLORS['card'] if self.dark_theme else '#ffffff'
-        self.action_label.setStyleSheet(card_style(color,size,True,True) if self.dark_theme else
+        self.action_label.setStyleSheet(card_style("#FFFFFF" if role=="wait_color" else color,size,True,True) if self.dark_theme else
             f'font-size:{size}px;font-weight:500;color:{color};background:{background};padding:14px;border:1px solid {color};border-radius:16px;')
 
     def apply_display_options(self,options):
         self.display_options=dict(options)
         self.threat_matrix.apply_colors(options.get('matrix_background','#00cc66'),options.get('matrix_winner','#ef4444'))
-        font=options.get('probability_font',32)
+        font=round(options.get('probability_font',32)*self._view_scale)
         self.win_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("win_color","#087d55")}; background: #e5f6ee; padding: 10px;')
         self.tie_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("tie_color","#7045b4")}; background: #f0eafa; padding: 10px;')
         self.summary.setStyleSheet(f'font-size: {options.get("text_font",20)}px; padding: 8px; color: #203b50; background: #eff6f3; border-radius: 8px;')
@@ -386,9 +405,9 @@ class AnalysisPanel(QWidget):
             from .theme import accent
             self.win_label.setStyleSheet(card_style(COLORS['win'] if options.get('win_color','#087d55') in ('#087d55','#43dfb9') else options['win_color'],font,True,True))
             self.tie_label.setStyleSheet(card_style(accent(options.get('tie_color','#7045b4')),font,True))
-            self.summary.setStyleSheet(card_style(COLORS['text'],options.get('text_font',20)))
-            self.sizing_label.setStyleSheet(card_style(COLORS['text'],18))
-            self.issue_label.setStyleSheet(card_style(COLORS['text'],17))
+            self.summary.setStyleSheet(card_style(COLORS['text'],max(13,round(options.get('text_font',20)*self._view_scale*.8))))
+            self.sizing_label.setStyleSheet(card_style(COLORS['text'],max(13,round(16*self._view_scale))))
+            self.issue_label.setStyleSheet(card_style(COLORS['text'],max(13,round(15*self._view_scale))))
 
         role=self.action_label.property('role_color')
         default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}.get(role,'#9a6500')

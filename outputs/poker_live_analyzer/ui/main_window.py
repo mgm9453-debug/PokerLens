@@ -78,7 +78,9 @@ class MainWindow(QMainWindow):
         self.setFont(interface_font())
         from version import APP_NAME
         self.setWindowTitle(APP_NAME)
-        self.resize(1100, 760)
+        self.resize(780, 960)
+        self.setMinimumSize(640,900)
+        self.setWindowFlag(Qt.WindowMinimizeButtonHint,False)
         from app_paths import user_data_dir
         self.data_dir = Path(data_dir) if data_dir is not None else user_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -136,13 +138,14 @@ class MainWindow(QMainWindow):
         self.overlay.open_main.connect(self.restore_main)
         from ui.theme import STYLE
         self.setStyleSheet(STYLE)
-        central = QWidget()
+        from .reference_style import ReferenceSurface
+        central = ReferenceSurface()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        title = QLabel('PokerLens\n牌局分析')
+        layout.setContentsMargins(34,14,34,18)
+        title = QLabel('<span style="color:#FFFFFF;font-size:30px;font-weight:600;">Poker</span><span style="color:#EFC67A;font-size:30px;font-weight:600;">Lens</span><span style="color:#EFC67A;"> │ </span><span style="color:#FFFFFF;font-size:19px;">牌局分析</span>')
         title.setStyleSheet('font-size: 20px; font-weight:500; color: #F4DCA4; padding:8px;')
         title_row=QHBoxLayout()
-        title_row.addWidget(title)
         title_row.addStretch()
         self.floating_button=QPushButton('收合到懸浮窗')
         self.floating_button.clicked.connect(self.show_floating)
@@ -150,7 +153,15 @@ class MainWindow(QMainWindow):
         self.control_button=QPushButton('調整設定')
         self.control_button.clicked.connect(self.open_control_settings)
         title_row.addWidget(self.control_button)
-        layout.addLayout(title_row)
+        title_header=QWidget()
+        title_header.setStyleSheet("background:transparent;")
+        title_header_layout=QVBoxLayout(title_header)
+        title_header_layout.setContentsMargins(8,0,8,0)
+        title_header_layout.setSpacing(0)
+        title_header.setStyleSheet("background:transparent; QPushButton {font-size:13px;padding:6px 10px;}")
+        title_header_layout.addWidget(title)
+        title_header_layout.addLayout(title_row)
+        layout.addWidget(title_header)
         self.table_controls=QWidget(central)
         table_row=QHBoxLayout(self.table_controls)
         table_row.addWidget(QLabel('追蹤牌桌'))
@@ -519,7 +530,7 @@ class MainWindow(QMainWindow):
         self.analyze_button.setVisible(False)
         self.clear_button.setVisible(False)
         self.demo_button.setVisible(False)
-        self.resize(1100, 820)
+        self.resize(780,960)
 
     def toggle_auto(self):
         if self.auto_active or self.auto_waiting:
@@ -577,7 +588,7 @@ class MainWindow(QMainWindow):
             if max(abs(a-b) for a,b in zip(rect,self.dock_key[1]))<80:return
         self.dock_key=key
         regions=free_regions(key[2],rect)
-        target=choose_region(regions,420,400)
+        target=choose_region(regions,self.minimumWidth()+12,self.minimumHeight()+50)
         if target is None:
             self.statusBar().showMessage('牌桌旁空間不足，保留主視窗；可手動調整牌桌大小。')
             return
