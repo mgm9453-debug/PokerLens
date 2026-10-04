@@ -1,6 +1,33 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent, QRect
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTableWidget, QTableWidgetItem, QCheckBox, QScrollArea,QBoxLayout
 from .hand_picture import hand_picture
+from .theme import COLORS, card_style
+
+
+class SummaryScrollArea(QScrollArea):
+    """說明完整換行，由主視窗負責捲動，避免框內文字被截斷。"""
+    def __init__(self, label):
+        super().__init__()
+        self.label=label
+        self.auto_height=False
+        label.installEventFilter(self)
+        self.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if self.auto_height and event.type() in (QEvent.Resize,QEvent.LayoutRequest):
+            self.fit_text()
+        return super().eventFilter(watched,event)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if self.auto_height:self.fit_text()
+
+    def fit_text(self):
+        margins=self.widget().layout().contentsMargins() if self.widget() else None
+        width=max(100,self.viewport().width()-(margins.left()+margins.right() if margins else 18))
+        text_height=self.label.heightForWidth(width)
+        height=max(70,text_height+(margins.top()+margins.bottom() if margins else 18)+4)
+        if self.minimumHeight()!=height or self.maximumHeight()!=height:self.setFixedHeight(height)
 
 
 class AnalysisPanel(QWidget):
@@ -8,6 +35,7 @@ class AnalysisPanel(QWidget):
         super().__init__()
         self.display_options={}
         self.dark_theme=False
+        self.fixed_layout=False
         layout = QVBoxLayout(self)
         heading = QLabel('分析結果')
         heading.setStyleSheet('font-size: 20px; font-weight: bold; color: #203b50;')
@@ -28,29 +56,37 @@ class AnalysisPanel(QWidget):
         self.set_action('等待確認','#9a6500')
         layout.removeWidget(self.action_label)
         layout.insertWidget(1,self.action_label)
+        self.mode_notice=QLabel()
+        self.mode_notice.setWordWrap(True)
+        self.mode_notice.setStyleSheet('font-size:16px;color:#ffc66d;padding:8px;')
+        layout.insertWidget(2,self.mode_notice)
+        self.issue_label=QLabel()
+        self.issue_label.setWordWrap(True)
+        self.issue_label.setStyleSheet('font-size:17px;color:#FFFFFF;background:#1C1712;border:1px solid #9B7133;border-radius:8px;padding:12px;')
+        layout.insertWidget(2,self.issue_label)
+        self.issue_label.hide()
+        self.last_issue_message=''
+
         self.sizing_label=QLabel('下注建議：等待可靠牌桌資料')
         self.sizing_label.setWordWrap(True)
         self.sizing_label.setStyleSheet('font-size:17px;padding:10px;')
         layout.addWidget(self.sizing_label)
         self.card_strip=QWidget()
         self.card_strip.setObjectName('surfacePanel')
-        card_layout=QHBoxLayout(self.card_strip)
+        card_layout=QVBoxLayout(self.card_strip)
+        self.card_text=QLabel('底牌：等待確認\n公共牌：等待確認')
+        self.card_text.setWordWrap(True)
+        card_layout.addWidget(self.card_text)
         self.hero_picture=QLabel()
         self.board_picture=QLabel()
-        for text,picture in (('我的手牌',self.hero_picture),('公共牌',self.board_picture)):
-            group=QVBoxLayout()
-            caption=QLabel(text)
-            caption.setObjectName('sectionTitle')
-            group.addWidget(caption)
-            group.addWidget(picture)
-            card_layout.addLayout(group)
         layout.addWidget(self.card_strip)
-        self.card_strip.hide()
+        from .threat_matrix import ThreatMatrix
+        self.threat_matrix=ThreatMatrix()
         self.summary = QLabel('選好牌、填好金額後，按「分析」。')
         self.summary.setWordWrap(True)
         self.summary.setAlignment(Qt.AlignTop|Qt.AlignLeft)
         self.summary.setStyleSheet('font-size: 23px; padding: 20px; color: #203b50; background: #eff6f3; border-radius: 12px;')
-        self.summary_scroll = QScrollArea()
+        self.summary_scroll = SummaryScrollArea(self.summary)
         self.summary_scroll.setWidgetResizable(True)
         self.summary_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.summary_body=QWidget()
@@ -60,11 +96,14 @@ class AnalysisPanel(QWidget):
         self.threat_pictures=QWidget()
         self.threat_pictures.setObjectName('surfacePanel')
         self.threat_layout=QGridLayout(self.threat_pictures)
-        summary_layout.addWidget(self.threat_pictures)
+
         summary_layout.addStretch()
         self.summary_scroll.setWidget(self.summary_body)
-        self.summary_scroll.setMinimumHeight(140)
+        self.summary_body.installEventFilter(self.summary_scroll)
+        self.summary_scroll.setMinimumHeight(50)
+        self.summary_scroll.setMaximumHeight(90)
         layout.addWidget(self.summary_scroll,1)
+        layout.addWidget(self.threat_matrix)
         self.details_toggle = QCheckBox('查看詳細數據與下注情境')
         layout.addWidget(self.details_toggle)
         self.details = QWidget()
@@ -72,6 +111,7 @@ class AnalysisPanel(QWidget):
         self.extra = QLabel()
         self.extra.setWordWrap(True)
         details_layout.addWidget(self.extra)
+        details_layout.addWidget(self.threat_pictures)
         self.scenarios = QTableWidget(0, 6)
         self.scenarios.setHorizontalHeaderLabels(['底池比例', '下注額', '被跟注後底池', '對手所需勝率', '剩餘籌碼底池比', '期望值'])
         self.scenarios.horizontalHeader().setStretchLastSection(True)
@@ -89,6 +129,25 @@ class AnalysisPanel(QWidget):
         self.footer=footer
         self.heading=heading
 
+    def enable_fixed_layout(self):
+        self.fixed_layout=True
+        for widget in (self.action_label,self.probabilities,self.issue_label,self.sizing_label,self.card_strip,self.summary_scroll):
+            policy=widget.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            widget.setSizePolicy(policy)
+        self.action_label.setFixedHeight(96)
+        self.probabilities.setFixedHeight(96)
+        self.issue_label.setFixedHeight(100)
+        self.sizing_label.setFixedHeight(80)
+        self.card_strip.setFixedHeight(88)
+        if self.dark_theme:
+            self.summary_scroll.setMinimumHeight(70)
+            self.summary_scroll.setMaximumHeight(16777215)
+            self.summary_scroll.auto_height=True
+            self.summary_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        else:
+            self.summary_scroll.setFixedHeight(70)
+
     def resizeEvent(self,event):
         wide=self.dark_theme and self.width()>=800
         self.summary_layout.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
@@ -101,18 +160,17 @@ class AnalysisPanel(QWidget):
         super().resizeEvent(event)
 
     def render(self, result):
+        self.issue_label.setVisible(self.fixed_layout)
+        if self.fixed_layout:self.issue_label.setText('資料狀態：已確認\n持續追蹤牌桌，資料變動時自動更新。')
+        self.sizing_label.show()
+        self.summary_scroll.show()
         hero=result.get('hero_cards',[])
         board=result.get('community_cards',[])
         self.card_strip.setVisible(bool(hero))
-        for label,cards in ((self.hero_picture,hero),(self.board_picture,board)):
-            label.clear()
-            label.setProperty('original_cards',None)
-            if cards:
-                original=hand_picture(cards,[]).copy(0,20,len(cards)*55,72)
-                label.setProperty('original_cards',original)
-                label.setPixmap(original.scaledToHeight(100 if self.dark_theme and self.width()>=800 else 72,Qt.SmoothTransformation))
-            else:
-                label.setText('公共牌尚未開出')
+        if hero:
+            from .threat_matrix import card_names
+            self.card_text.setText(f'底牌已確認：{card_names(hero)}\n公共牌：{card_names(board) or "尚未翻牌"}')
+        self.threat_matrix.render(hero,board)
         self.clear_threat_pictures()
         self.footer.setVisible(not result.get('live',False))
         self.heading.setVisible(not result.get('live',False))
@@ -179,9 +237,9 @@ class AnalysisPanel(QWidget):
             elif ev is None or abs(ev)<1:
                 self.set_action('等待確認｜估算接近邊界','#9a6500')
             elif ev>0:
-                self.set_action(f'估算可跟注 {call:,.0f}' if result.get('range_assumed') else f'入場：跟注 {call:,.0f}','#087d55')
+                self.set_action(f'依估算建議跟注 {call:,.0f}' if result.get('range_assumed') else f'入場：跟注 {call:,.0f}','#087d55')
             elif result.get('range_assumed'):
-                self.set_action('跟注成本偏高｜先確認對手加注','#9a6500')
+                self.set_action(f'依估算建議棄牌｜需跟注 {call:,.0f}','#c42b36')
             else:
                 self.set_action('不入場：棄牌','#c42b36')
             self.action_label.setToolTip('依目前辨識資料與假設對手範圍的跟注期望值；未納入後續下注、行動位置及完整獎金結構。')
@@ -216,9 +274,9 @@ class AnalysisPanel(QWidget):
             if chart:
                 cost=('不用補錢；加注條件待確認' if call==0 else
                     '跟注估算待確認' if ev is None or abs(ev)<1 else
-                    f'估算可跟注 {call:,.0f}' if ev>0 else f'跟注成本偏高 {call:,.0f}')
-                color={'藍色':'#087d55','黃色':'#9a6500','灰色':'#c42b36'}[chart['color']]
-                self.set_action(f'{chart["rule"]}｜{cost}',color)
+                    f'依估算建議跟注 {call:,.0f}' if ev>0 else f'依估算建議棄牌｜需跟注 {call:,.0f}')
+                color='#1765aa' if call==0 else '#9a6500' if ev is None or abs(ev)<1 else '#087d55' if ev>0 else '#c42b36'
+                self.set_action('過牌｜不用補錢' if call==0 else cost,color)
                 self.summary.setText(f'使用者牌表：{chart["color"]}｜{chart["rule"]}\n行動參考：{cost}｜跟注期望值 {ev_text}{assumption}\n位置與前面加注待確認；{raise_text}')
             elif self.dark_theme:
                 self.summary.setText('行動參考：依目前牌面與跟注成本估算。\n'+
@@ -236,6 +294,30 @@ class AnalysisPanel(QWidget):
                         text+=f'；對目前假設範圍的單挑參考 {published["range_equity"]:.1%}'
                     self.extra.setText(self.extra.text()+f'\n{text}\n{published["label"]}。{published["context"]}\n來源：{published["source"]}；資料版本：{published["source_commit"]}；授權：{published["license"]}')
                     self.summary.setText(self.summary.text()+f'\n起手牌基準：隨機單挑含分池 {published["random_equity"]:.1%}（非本手勝率）')
+        if result.get('live') and result.get('facing_all_in') and not result.get('equity_only'):
+            call=result.get('call_amount',0)
+            ev=result.get('ev')
+            needed=result.get('required_equity',result.get('pot_odds',0))
+            if call==0:
+                self.set_action('對手全下｜目前不用補錢','#1765aa')
+            elif ev is None or abs(ev)<1:
+                self.set_action('對手全下｜估算接近邊界，暫不判定','#9a6500')
+            elif ev>0:
+                self.set_action(f'對手全下｜依估算建議跟注 {call:,.0f}','#087d55')
+            else:
+                self.set_action(f'對手全下｜依估算建議棄牌','#c42b36')
+            self.sizing_label.setText(f'需補 {call:,.0f}｜跟注門檻 {needed:.1%}｜依設定的對手範圍估算')
+            self.summary.setText('行動參考：依目前跟注成本估算；尚未計入後續下注、邊池及獎金結構。')
+        self.mode_notice.clear()
+        self.mode_notice.hide()
+        if result.get('equity_only'):
+            self.set_action('勝率已估算｜下注暫停，金額待確認','#9a6500')
+            self.sizing_label.setText('下注金額：資料未確認，暫不提供')
+            self.summary.setText(f'目前牌型：{result.get("hand_strength","")}｜對手 {result.get("opponents",0)} 人\n依假設對手範圍估算勝率，金額確認後再分析跟注成本。')
+            self.extra.setText(f'快速估算 {result.get("simulation_count",0):,} 次；對手範圍是假設。未使用未知金額計算期望值。')
+        self.threat_pictures.setVisible('threats_details' in result)
+        if result.get('equity_only'):
+            self.show_issue(self.last_issue_message or '下注金額尚未確認')
         examples=result.get('threats_details',{}).get('visual_examples',[])
         if examples:
             stage=result.get('street','目前公共牌')
@@ -259,7 +341,7 @@ class AnalysisPanel(QWidget):
             note=QLabel('對手底牌範例；不是已知持牌。')
             note.setWordWrap(True)
             self.threat_layout.addWidget(note,1+(len(examples)+1)//2,0,1,2)
-        elif result.get('live'):
+        elif result.get('live') and 'threats_details' in result:
             title=QLabel(f'{threats_heading}\n{types_text}')
             title.setWordWrap(True)
             self.threat_layout.addWidget(title,0,0,1,2)
@@ -289,25 +371,30 @@ class AnalysisPanel(QWidget):
         self.action_label.setText(text)
         self.action_label.setProperty('role_color',role)
         size=self.display_options.get('action_font',30)
-        background='#092c29' if self.dark_theme else '#ffffff'
-        self.action_label.setStyleSheet(f'font-size: {size}px; font-weight: bold; color: {color}; background: {background}; padding: 14px; border: 1px solid {color}; border-radius: 10px;')
+        background=COLORS['card'] if self.dark_theme else '#ffffff'
+        self.action_label.setStyleSheet(card_style(color,size,True,True) if self.dark_theme else
+            f'font-size:{size}px;font-weight:500;color:{color};background:{background};padding:14px;border:1px solid {color};border-radius:16px;')
 
     def apply_display_options(self,options):
         self.display_options=dict(options)
+        self.threat_matrix.apply_colors(options.get('matrix_background','#00cc66'),options.get('matrix_winner','#ef4444'))
         font=options.get('probability_font',32)
         self.win_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("win_color","#087d55")}; background: #e5f6ee; padding: 10px;')
         self.tie_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("tie_color","#7045b4")}; background: #f0eafa; padding: 10px;')
         self.summary.setStyleSheet(f'font-size: {options.get("text_font",20)}px; padding: 8px; color: #203b50; background: #eff6f3; border-radius: 8px;')
         if self.dark_theme:
             from .theme import accent
-            self.win_label.setStyleSheet(f'font-family:"Inter","Noto Sans TC";font-size:{font}px;font-weight:600;color:{accent(options.get("win_color","#087d55"))};background:#101f2c;padding:14px;border:1px solid #263e50;border-radius:10px;')
-            self.tie_label.setStyleSheet(f'font-family:"Inter","Noto Sans TC";font-size:{font}px;font-weight:600;color:{accent(options.get("tie_color","#7045b4"))};background:#101f2c;padding:14px;border:1px solid #263e50;border-radius:10px;')
-            self.summary.setStyleSheet(f'font-size:{options.get("text_font",20)}px;padding:14px;color:#c6dbe9;background:#101f2c;border:1px solid #263e50;border-radius:10px;')
-            self.sizing_label.setStyleSheet('font-size:18px;font-weight:500;padding:14px;color:#f3d8a4;background:#302619;border:1px solid #88632f;border-radius:8px;')
+            self.win_label.setStyleSheet(card_style(COLORS['win'] if options.get('win_color','#087d55') in ('#087d55','#43dfb9') else options['win_color'],font,True,True))
+            self.tie_label.setStyleSheet(card_style(accent(options.get('tie_color','#7045b4')),font,True))
+            self.summary.setStyleSheet(card_style(COLORS['text'],options.get('text_font',20)))
+            self.sizing_label.setStyleSheet(card_style(COLORS['text'],18))
+            self.issue_label.setStyleSheet(card_style(COLORS['text'],17))
+
         role=self.action_label.property('role_color')
         default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}.get(role,'#9a6500')
         self.set_action(self.action_label.text(),default)
-        self.threat_pictures.setVisible(options.get('show_threats',True))
+        self.threat_pictures.setVisible(options.get('show_threats',True) and self.threat_layout.count()>0)
+        self.threat_matrix.setVisible(options.get('show_threats',True))
         for label in self.threat_pictures.findChildren(QLabel):
             original=label.property('original_picture')
             if original is not None:
@@ -315,14 +402,57 @@ class AnalysisPanel(QWidget):
 
     def render_card_threats(self,result,message):
         self.render(dict(result,live=True))
-        self.probabilities.hide()
+        self.probabilities.setVisible(self.fixed_layout)
+        if self.fixed_layout:
+            self.win_label.setText('勝率 更新中')
+            self.tie_label.setText('平手 更新中')
         self.set_action('等待確認','#9a6500')
         self.summary.setText(message.split('\n')[0])
         self.sizing_label.setText('下注建議：金額未確認，暫停建議尺寸')
         self.extra.setText('此處只比較已確認牌面，不需要下注金額。範例從所有合法對手底牌列舉，不代表實際持牌。')
+        self.show_issue(self.last_issue_message or message)
+
+    def show_issue(self,message):
+        problem=message.split('\n')[0].removeprefix('資料不確定，請確認：')
+        if '等待牌桌' in message or '找不到' in message:
+            solution='開啟牌桌，再按「重新找牌桌」並選擇要追蹤的桌。'
+        elif '最小化' in message:
+            solution='還原牌桌視窗，程式會自動重新讀取。'
+        elif '休息' in message or '沒有可見底牌' in message or '尚未發牌' in message:
+            solution='等待下一手發牌；目前不提供下注建議。'
+        elif '背景計算' in message or '正在確認牌面' in message:
+            solution='正在自動處理，完成後會更新，不需要操作。'
+        elif '牌背' in message or '持牌' in message:
+            solution='等待牌背動畫結束；若持續出現，放大牌桌並確認選對牌桌。'
+        elif '金額' in message or '下注' in message or '籌碼' in message or '跟注' in message or '底池' in message:
+            solution='等待下注動畫結束；若仍讀不到，放大牌桌並切換成籌碼顯示。'
+        elif '底牌' in message or '牌面' in message:
+            solution='等待發牌動畫結束；若仍未確認，放大牌桌並檢查是否有遊戲內視窗遮住牌。'
+        else:
+            solution='確認牌桌仍開啟，再按「重新找牌桌」並選擇正確牌桌。'
+        self.issue_label.setText(f'目前問題：{problem}\n解決方式：{solution}')
+        self.issue_label.show()
+        if self.fixed_layout:
+            self.set_action('行動建議：等待底牌確認' if '底牌' in message else '行動建議：等待資料確認','#9a6500')
+            self.sizing_label.setText('下注建議：等待可靠金額')
+            self.summary.setText('分析說明：資料不確定，確認後自動更新。')
+            self.action_label.show()
+            self.sizing_label.show()
+            self.summary_scroll.show()
+        else:
+            self.action_label.hide()
+            self.sizing_label.hide()
+            self.summary_scroll.hide()
 
     def invalidate(self, message):
-        self.card_strip.hide()
+        self.last_issue_message=message
+        self.mode_notice.clear()
+        if not self.fixed_layout:
+            self.threat_matrix.render([],[])
+        else:
+            self.threat_matrix.setEnabled(False)
+            self.threat_matrix.caption.setText('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
+            self.threat_matrix.table.setToolTip('牌面尚未確認；矩陣暫不可使用。')
         self.hero_picture.clear()
         self.board_picture.clear()
         self.sizing_label.setText('下注建議：資料未確認，暫停建議金額')
@@ -344,3 +474,12 @@ class AnalysisPanel(QWidget):
         self.summary.setText(message.split('\n')[0])
         self.extra.clear()
         self.scenarios.setRowCount(0)
+        self.card_strip.hide()
+        self.show_issue(message)
+        if self.fixed_layout:
+            self.win_label.setText('勝率 更新中')
+            self.tie_label.setText('平手 更新中')
+            self.probabilities.show()
+            if any(word in message for word in ('等待牌桌','擷取','視窗','休息')):
+                self.card_text.setText('底牌與公共牌：正在確認最新資料')
+            self.card_strip.show()

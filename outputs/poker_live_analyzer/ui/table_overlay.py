@@ -31,6 +31,12 @@ class TableOverlay(QWidget):
         layout.addWidget(self.details)
 
     def render(self, result, state):
+        if result.get('equity_only'):
+            win=result.get('equity_details',{}).get('win_probability')
+            self.label.setText('勝率已估算｜下注金額待確認')
+            self.details.setText(f'勝率 {win:.1%}　平手 {result.get("tie_probability",0):.1%}\n對手 {result.get("opponents",0)} 人｜依假設手牌範圍估算\n金額不完整，暫停下注建議' if win is not None else '正在估算勝率')
+            self.adjustSize()
+            return
         call=state.get('call_amount',0)
         pot=state.get('pot',0)
         self.label.setText(result.get('action_text') or ('不用補錢｜行動待確認' if call==0 else '跟注估算待確認'))

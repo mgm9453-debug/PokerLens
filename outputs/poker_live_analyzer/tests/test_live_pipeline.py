@@ -19,15 +19,17 @@ def test_live_pipeline_needs_no_analysis_click(tmp_path,monkeypatch,filename,her
     from ui.main_window import MainWindow
     from capture.window_capture import TableWindow
     frame=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures'/filename,np.uint8),1)
-    # 舊匿名畫面使用紅牌背，僅將牌背區轉成目前指定的綠色。
-    from vision.player_detector import SEAT_REGIONS
+    # 使用真實綠色牌背圖樣，不能只把舊紅牌背染綠就視為同一圖樣。
+    from vision.player_detector import SEAT_REGIONS,PlayerDetector
+    occupied=PlayerDetector().detect(frame).active_seats
+    sample=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/green_backs_anonymous.png',np.uint8),1)
+    sx,sy,sw,sh=SEAT_REGIONS[2]
+    back=sample[round(sy*799):round((sy+sh)*799),round(sx*1128):round((sx+sw)*1128)]
     h,w=frame.shape[:2]
-    for x,y,rw,rh in SEAT_REGIONS.values():
+    for seat in occupied:
+        x,y,rw,rh=SEAT_REGIONS[seat]
         region=frame[round(y*h):round((y+rh)*h),round(x*w):round((x+rw)*w)]
-        hsv=cv2.cvtColor(region,cv2.COLOR_BGR2HSV)
-        red=((hsv[:,:,0]<12)|(hsv[:,:,0]>165))&(hsv[:,:,1]>70)&(hsv[:,:,2]>75)
-        hsv[:,:,0][red]=60
-        region[:]=cv2.cvtColor(hsv,cv2.COLOR_HSV2BGR)
+        region[:]=cv2.resize(back,(region.shape[1],region.shape[0]))
     class Capture:
         def __init__(self,*args,**kwargs): pass
         def open(self): pass

@@ -5,7 +5,7 @@ from threading import Event
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QSpinBox, QPlainTextEdit, QSplitter, QTabWidget, QListWidget,
-    QCheckBox, QSlider, QMessageBox, QFileDialog, QScrollArea, QInputDialog)
+    QCheckBox, QSlider, QApplication, QMessageBox, QFileDialog, QScrollArea, QInputDialog)
 from capture.worker import CaptureWorker
 from capture.screen_capture import ScreenCapture
 from capture.obs_capture import ObsCapture
@@ -86,6 +86,12 @@ class MainWindow(QMainWindow):
         self.control_path=self.data_dir/'control_settings.json'
         try: self.control_options=read(self.control_path)
         except (ValueError,OSError): self.control_options=validate({})
+        # 保留模式與數值；新工作階段必須重新確認當前牌桌規則。
+        self.control_options.update(bounty_active=False,bounty_known=False,rake_known=False)
+        if self.control_path.exists():
+            from control_settings import write
+            try: write(self.control_options,self.control_path)
+            except OSError: pass
         self.capture_last_frame=0.0
         self.capture_title='尚未選定牌桌'
         self.profile_dir = self.data_dir / 'profiles'
@@ -97,6 +103,7 @@ class MainWindow(QMainWindow):
             self.detector.version = max(event['version'] for event in stored_events)
         self.capture_worker = None
         self.vision_worker = None
+        self.dock_key=None
         self.auto_active = False
         self.auto_waiting = False
         self.auto_watch = False
@@ -108,6 +115,9 @@ class MainWindow(QMainWindow):
         self.equity_cache = None
         self.card_threat_key=None
         self.card_threat_result=None
+        self.partial_equity_key=None
+        self.partial_equity_result=None
+        self.partial_equity_time=0.0
         self.last_hero_names=''
         self.last_hero_time=0.0
         self.live_numbers = QLabel('等待牌桌資料')
@@ -129,8 +139,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        title = QLabel('牌局分析')
-        title.setStyleSheet('font-size: 24px; font-weight:600; color: #e5eff7; padding:8px;')
+        title = QLabel('PokerLens\n牌局分析')
+        title.setStyleSheet('font-size: 20px; font-weight:500; color: #F4DCA4; padding:8px;')
         title_row=QHBoxLayout()
         title_row.addWidget(title)
         title_row.addStretch()
@@ -141,14 +151,31 @@ class MainWindow(QMainWindow):
         self.control_button.clicked.connect(self.open_control_settings)
         title_row.addWidget(self.control_button)
         layout.addLayout(title_row)
+        self.table_controls=QWidget(central)
+        table_row=QHBoxLayout(self.table_controls)
+        table_row.addWidget(QLabel('追蹤牌桌'))
+        self.table_choice=QComboBox()
+        self.table_choice.addItem('自動選擇可用牌桌',None)
+        self.table_choice.setMinimumWidth(280)
+        table_row.addWidget(self.table_choice,1)
+        refresh=QPushButton('重新找牌桌')
+        refresh.clicked.connect(self.refresh_table_choices)
+        table_row.addWidget(refresh)
+        self.table_choice.activated.connect(self.change_table)
+        self.table_controls.hide()
         guide = QLabel('即時模式自動讀取牌桌並更新分析；不需要按「分析」。')
-        guide.setStyleSheet('color: #627888;')
+        guide.setStyleSheet('color: #FFFFFF;')
         self.guide=guide
         layout.addWidget(guide)
+        self.amount_unit_notice=QLabel()
+        self.amount_unit_notice.setWordWrap(True)
+        self.amount_unit_notice.setStyleSheet('font-size:18px;color:#ffc66d;padding:8px;')
+        self.amount_unit_notice.hide()
+        layout.addWidget(self.amount_unit_notice)
         layout.addWidget(self.live_numbers)
         layout.addWidget(self.live_cards)
         self.mode_label = QLabel('示範牌局：可直接按分析，或換成你的牌與金額。')
-        self.mode_label.setStyleSheet('color: #627888; padding-bottom: 8px;')
+        self.mode_label.setStyleSheet('color: #FFFFFF; padding-bottom: 8px;')
         layout.addWidget(self.mode_label)
         simple_split = QSplitter()
         self.simple_form = SimpleHandForm()
@@ -156,10 +183,19 @@ class MainWindow(QMainWindow):
         self.simple_form.edited.connect(self.form_edited)
         self.analysis = AnalysisPanel()
         self.analysis.dark_theme=True
+        self.analysis.enable_fixed_layout()
+        self.analysis.layout().removeWidget(self.analysis.card_strip)
+        self.analysis.card_strip.setParent(self.analysis.details)
+        self.analysis.card_strip.hide()
+        self.analysis.details_toggle.hide()
+        self.analysis.details.hide()
+        self.statusBar().hide()
         layout.removeWidget(self.live_numbers)
         layout.removeWidget(self.live_cards)
-        self.analysis.layout().insertWidget(3,self.live_cards)
-        self.analysis.layout().insertWidget(4,self.live_numbers)
+        self.live_cards.hide()
+        self.live_cards.deleteLater()
+        self.live_cards=self.analysis.card_text
+        self.live_numbers.hide()
         self.live_cards.setStyleSheet('font-size:17px;padding:10px;color:#d9e8f4;background:#132839;border-radius:8px;')
         self.live_numbers.setStyleSheet('font-size:16px;padding:10px;color:#b9d1e1;background:#152c3e;border-radius:8px;')
         simple_split.addWidget(self.simple_form)
@@ -174,6 +210,8 @@ class MainWindow(QMainWindow):
         self.demo_button = self.add_button(main_buttons, '載入示範', self.load_demo)
         self.auto_button = self.add_button(main_buttons, '開始自動辨識', self.toggle_auto)
         self.auto_button.setMinimumHeight(40)
+        main_buttons.removeWidget(self.auto_button)
+        title_row.insertWidget(1,self.auto_button)
         layout.addLayout(main_buttons)
         self.auto_status = QLabel('自動辨識尚未啟動')
         self.auto_status.setStyleSheet('color: #167d65;')
@@ -276,7 +314,7 @@ class MainWindow(QMainWindow):
         self.refresh_history()
         self.statusBar().showMessage('就緒：此階段使用假資料與手動輸入')
         self.analysis.apply_display_options(self.control_options)
-        self.live_numbers.setVisible(self.control_options['show_chips'])
+        self.live_numbers.hide()
         self.control_timer=QTimer(self)
         self.control_timer.timeout.connect(self.poll_control_settings)
         self.control_timer.start(1000)
@@ -284,8 +322,16 @@ class MainWindow(QMainWindow):
             self.settings.iterations.blockSignals(True)
             self.settings.iterations.setCurrentIndex(self.settings.iterations.findData(self.control_options['iterations']))
             self.settings.iterations.blockSignals(False)
+        # 小螢幕側邊顯示時可垂直捲動，避免內容最小尺寸把視窗撐回牌桌上。
+        body=self.takeCentralWidget()
+        self.main_scroll=QScrollArea()
+        self.main_scroll.setWidgetResizable(True)
+        self.main_scroll.setWidget(body)
+        self.setCentralWidget(self.main_scroll)
         if auto_demo:
             QTimer.singleShot(0,self.apply_editor)
+        try: self.refresh_table_choices()
+        except (OSError,RuntimeError): pass
 
     def open_control_settings(self):
         from ui.control_dialog import ControlDialog
@@ -328,7 +374,12 @@ class MainWindow(QMainWindow):
         previous=self.control_options
         self.control_options=validate(options)
         self.analysis.apply_display_options(self.control_options)
-        self.live_numbers.setVisible(self.control_options['show_chips'])
+        self.live_numbers.hide()
+        if previous['auto_dock']!=self.control_options['auto_dock']:
+            self.dock_key=None
+            if self.auto_active and self.vision_worker:
+                table=next((item for item in list_tables() if item.handle==self.vision_worker.handle),None)
+                if table:self.dock_beside_table(table)
         if self.vision_worker: self.vision_worker.refresh_ms=self.control_options['refresh_ms']
         index=self.settings.iterations.findData(self.control_options['iterations'])
         self.settings.iterations.blockSignals(True)
@@ -358,7 +409,8 @@ class MainWindow(QMainWindow):
         self.result = None
         self.generation += 1
         for worker in self.workers:
-            worker.cancel.set()
+            from .equity_preview import EquityPreviewWorker
+            if not isinstance(worker,EquityPreviewWorker): worker.cancel.set()
         self.statusBar().showMessage(f'資料不確定：{message}')
         self.analysis.invalidate(f'資料不確定，請確認：{message}')
         self.overlay.invalidate(f'資料不確定：{message}')
@@ -368,6 +420,69 @@ class MainWindow(QMainWindow):
             if self.card_threat_result and not any(word in message for word in ('牌面','底牌','擷取','視窗','休息')):
                 self.analysis.render_card_threats(self.card_threat_result,'金額或人數確認中；行動暫停')
             self.mode_label.setText('自動追蹤中，等待可靠的牌桌資料。')
+            if not any(word in message for word in ('牌面','底牌','擷取','視窗','休息','牌背','持牌')):
+                self.render_equity_preview()
+
+    def refresh_table_choices(self):
+        previous=self.table_choice.currentData()
+        try:
+            tables=[table for table in list_tables() if '盲注' in table.title or 'blind' in table.title.lower()]
+            self.table_choice.blockSignals(True)
+            self.table_choice.clear()
+            self.table_choice.addItem('自動選擇可用牌桌',None)
+            for table in tables: self.table_choice.addItem(table.title,table.handle)
+            index=self.table_choice.findData(previous)
+            self.table_choice.setCurrentIndex(max(0,index))
+        finally:
+            self.table_choice.blockSignals(False)
+
+    def selected_table(self,tables):
+        handle=self.table_choice.currentData()
+        if handle is None: return tables[0]
+        selected=next((table for table in tables if table.handle==handle),None)
+        if selected is None: raise ValueError('所選牌桌已關閉，請重新選擇牌桌')
+        return selected
+
+    def change_table(self,*_):
+        if self.auto_active or self.auto_waiting:
+            if self.stop_auto(): self.toggle_auto()
+
+    def accept_equity_view(self,token,observation):
+        if token!=self.auto_generation or not self.auto_active: return
+        from .equity_preview import EquityPreviewWorker
+        if observation is None:
+            self.partial_equity_key=None
+            self.partial_equity_result=None
+            for worker in self.workers:
+                if isinstance(worker,EquityPreviewWorker): worker.cancel.set()
+            return
+        key=(token,tuple(observation['hero']),tuple(observation['board']),
+            tuple(observation['active_seats']),self.control_options['opponent_range'])
+        self.partial_equity_time=monotonic()
+        if key==self.partial_equity_key:
+            self.render_equity_preview()
+            return
+        self.partial_equity_key=key
+        self.partial_equity_result=None
+        for worker in self.workers:
+            if isinstance(worker,EquityPreviewWorker): worker.cancel.set()
+        worker=EquityPreviewWorker(key,observation,self.control_options['opponent_range'],self)
+        worker.succeeded.connect(self.accept_equity_result)
+        worker.finished.connect(lambda:self.worker_finished(worker))
+        self.workers.append(worker)
+        worker.start()
+
+    def accept_equity_result(self,key,result):
+        if key!=self.partial_equity_key or not self.auto_active: return
+        self.partial_equity_result=result
+        self.render_equity_preview()
+
+    def render_equity_preview(self):
+        if self.partial_equity_result is None or self.result is not None or self.replay_mode: return
+        if monotonic()-self.partial_equity_time>1.5: return
+        self.analysis.render(self.partial_equity_result)
+        self.overlay.render({**self.partial_equity_result,'action_text':'勝率已估算｜下注暫停，金額待確認',
+            'sizing_advice':'下注金額：等待確認'}, {})
 
     def form_edited(self):
         self.simple_dirty = True
@@ -421,10 +536,12 @@ class MainWindow(QMainWindow):
                 self.auto_status.setText('等待開啟牌局視窗，找到牌桌後會自動開始')
                 self.analysis.invalidate('等待牌桌；開啟牌局後會自動追蹤。')
                 return
-            selected = tables[0]
+            selected = self.selected_table(tables)
             self.capture_title=selected.title
             self.capture_last_frame=0.0
             self.clear_simple()
+            self.save_control_settings({**self.control_options,'bounty_active':False,
+                'bounty_known':False,'rake_known':False})
             self.set_live_layout()
             self.auto_active = True
             self.auto_generation += 1
@@ -433,8 +550,8 @@ class MainWindow(QMainWindow):
             self.equity_cache = None
             self.auto_button.setText('停止自動辨識')
             self.auto_status.setText('正在讀取牌桌視窗內容；可被其他視窗遮擋，請勿最小化')
-            available = self.screen().availableGeometry()
-            self.move(available.right()-self.width()+1, available.top()+25)
+            self.dock_key=None
+            QTimer.singleShot(0,lambda:self.dock_beside_table(selected))
             self.vision_worker = VisionWorker(selected.handle, self, diagnostic_path=self.data_dir/'辨識狀態.json')
             self.vision_worker.refresh_ms=self.control_options['refresh_ms']
             self.vision_worker.cards.connect(lambda result: self.accept_auto_cards(token, result))
@@ -442,12 +559,35 @@ class MainWindow(QMainWindow):
             self.vision_worker.table.connect(lambda result: self.accept_auto_table(token, result))
             self.vision_worker.amounts.connect(lambda result: self.accept_auto_amounts(token, result))
             self.vision_worker.view.connect(lambda result: self.accept_auto_view(token, result))
+            self.vision_worker.equity_view.connect(lambda result:self.accept_equity_view(token,result))
             self.vision_worker.unavailable.connect(lambda message: self.accept_auto_unavailable(token, message))
             self.vision_worker.status.connect(lambda message: self.accept_auto_status(token, message))
             self.vision_worker.timing.connect(lambda milliseconds: self.accept_auto_timing(token, milliseconds))
             self.vision_worker.start()
         except Exception as error:
             self.auto_status.setText(str(error))
+
+    def dock_beside_table(self,table):
+        if not self.auto_active or not self.control_options['auto_dock']: return
+        from .window_placement import table_screen,free_regions,choose_region
+        screen,rect=table_screen(table,QApplication.screens())
+        area=screen.availableGeometry()
+        key=(table.handle,rect,(area.x(),area.y(),area.width(),area.height()))
+        if self.dock_key is not None and key[0]==self.dock_key[0] and key[2]==self.dock_key[2]:
+            if max(abs(a-b) for a,b in zip(rect,self.dock_key[1]))<80:return
+        self.dock_key=key
+        regions=free_regions(key[2],rect)
+        target=choose_region(regions,420,400)
+        if target is None:
+            self.statusBar().showMessage('牌桌旁空間不足，保留主視窗；可手動調整牌桌大小。')
+            return
+        x,y,width,height=target
+        self.overlay.hide()
+        self.showNormal()
+        # 保留標題列與視窗邊框空間。
+        self.resize(min(800,width-12),height-50)
+        self.move(x,y)
+        self.statusBar().showMessage('已自動移到牌桌旁；可在調整設定關閉。')
 
     def monitor_auto(self):
         if not self.auto_watch:
@@ -459,6 +599,10 @@ class MainWindow(QMainWindow):
         elif self.auto_active and self.vision_worker and self.vision_worker.handle not in {table.handle for table in tables}:
             if self.stop_auto():
                 self.toggle_auto()
+
+        elif self.auto_active and self.vision_worker:
+            selected=next((table for table in tables if table.handle==self.vision_worker.handle),None)
+            if selected: self.dock_beside_table(selected)
 
     def set_card_controls_enabled(self, enabled):
         for button in self.simple_form.hero + self.simple_form.board:
@@ -478,6 +622,7 @@ class MainWindow(QMainWindow):
 
     def accept_auto_unavailable(self, token, message):
         if token == self.auto_generation and self.auto_active:
+            self.accept_equity_view(token,None)
             self.show_error(message)
             self.capture_last_frame=0.0
             self.last_hero_names=''
@@ -495,6 +640,22 @@ class MainWindow(QMainWindow):
     def accept_auto_amounts(self, token, amounts):
         if token != self.auto_generation or not self.auto_active:
             return
+        from .equity_preview import EquityPreviewWorker
+        state=self.detector.state
+        if state is not None and self.result is not None:
+            changed=any(value is None or abs(value-old)>.01 for value,old in
+                ((amounts.pot,state.pot),(amounts.call_amount,state.call_amount),(amounts.hero_stack,state.hero_stack)))
+            changed=changed or any(p.current_bet!=amounts.seat_bets.get(p.seat) for p in state.players)
+            if changed:
+                self.result=None
+                self.generation+=1
+                for worker in self.workers:
+                    if not isinstance(worker,EquityPreviewWorker): worker.cancel.set()
+                self.analysis.invalidate('下注金額已改變，正在確認新的跟注額；舊建議已撤回')
+                self.overlay.invalidate('下注金額已變動，舊建議已撤回')
+        bb=getattr(amounts,'bb_display',False)
+        self.amount_unit_notice.setText('牌桌目前顯示大盲單位，請切換成籌碼顯示。換算可能有四捨五入誤差。' if bb else '')
+        self.amount_unit_notice.setVisible(bb)
         def number(value):
             return f'{value:,.0f}' if value is not None else '辨識中'
         if amounts.paused:
@@ -551,6 +712,7 @@ class MainWindow(QMainWindow):
                     threats=calculate_threats(temporary)
                     self.card_threat_key=key
                     self.card_threat_result={'street':temporary.street,'hand_strength':self.auto_category,
+                        'hero_cards':list(detection.hero),'community_cards':list(detection.board),
                         'beating_hand_types':threats.beating_hand_types,'threats_details':threats.to_dict()}
                 self.analysis.render_card_threats(self.card_threat_result,'金額確認中；行動暫停')
         else:
@@ -583,12 +745,16 @@ class MainWindow(QMainWindow):
         suits={'s':'黑桃','c':'梅花','h':'紅心','d':'方塊'}
         ranks={'T':'十','J':'傑克','Q':'皇后','K':'國王','A':'王牌'}
         def names(cards): return '、'.join(suits[c[1]]+ranks.get(c[0],c[0]) for c in cards)
+        self.analysis.card_strip.show()
         self.last_hero_names=names(hero)
         self.last_hero_time=monotonic()
         public='正在確認；底牌已獨立讀取' if board is None else names(board) or '尚未翻牌'
         self.live_cards.setText(f'底牌已確認：{names(hero)}\n公共牌：{public}')
 
     def stop_auto(self):
+        self.amount_unit_notice.hide()
+        self.partial_equity_key=None
+        self.partial_equity_result=None
         if self.vision_worker:
             self.vision_worker.requestInterruption()
             if not self.vision_worker.wait(3000):
@@ -751,7 +917,7 @@ class MainWindow(QMainWindow):
         worker.deleteLater()
 
     def analysis_ready(self, version, result):
-        if version != self.detector.version:
+        if getattr(self,'_closed',False) or version != self.detector.version:
             return
         self.result = result.to_dict()
         self.result['pot']=self.detector.state.pot
@@ -765,6 +931,7 @@ class MainWindow(QMainWindow):
             self.result['bet_scenarios']=[asdict(row) for row in simulate_bets(state.pot,state.effective_stack,result.equity,state.fold_probability,self.control_options['bet_percentages'])]
         if self.auto_active:
             self.equity_cache = (AnalysisEngine.equity_key(self.detector.state, self.settings.seed.value()), EquityResult(**result.equity_details))
+            self.result['facing_all_in']=any(p.all_in for p in state.players if p.seat!=state.hero_seat and p.active and not p.folded)
             self.result.update(live=True, range_assumed=True, street=self.detector.state.street, call_amount=self.detector.state.call_amount,
                 effective_stack=self.detector.state.effective_stack,
                 opponents=sum(p.active and not p.folded and p.seat != self.detector.state.hero_seat for p in self.detector.state.players))
@@ -773,7 +940,7 @@ class MainWindow(QMainWindow):
         self.repository.save_analysis(version, self.result)
         if not self.replay_mode:
             self.analysis.render(self.result)
-            self.live_cards.hide()
+            self.live_cards.show()
             self.result['action_text']=self.analysis.action_label.text()
             self.result['sizing_advice']=self.analysis.sizing_label.text()
             self.overlay.render(self.result, self.detector.state.to_dict())
@@ -1008,5 +1175,7 @@ class MainWindow(QMainWindow):
         self.overlay.close()
         self.control_timer.stop()
         self.frame_timer.stop()
+        self._closed=True
+        self.generation+=1
         self.repository.close()
         event.accept()

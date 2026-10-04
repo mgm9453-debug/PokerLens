@@ -20,6 +20,7 @@ class VisionWorker(QThread):
     table = Signal(object)
     amounts = Signal(object)
     view = Signal(object)
+    equity_view = Signal(object)
     unavailable = Signal(str)
 
     def __init__(self, handle, parent=None, diagnostic_path=None):
@@ -48,6 +49,12 @@ class VisionWorker(QThread):
                     if not opened:
                         capture.open()
                         opened = True
+                    # 升盲與顯示單位變更時，從同一牌桌標題更新換算；不猜測盲注。
+                    from capture.window_capture import list_tables
+                    from vision.ocr_engine import blinds_from_title
+                    selected=next((table for table in list_tables() if table.handle==self.handle),None)
+                    blinds=blinds_from_title(selected.title) if selected else None
+                    money_detector.ocr.big_blind=blinds[1] if blinds else None
                     frame = capture.read()
                     detection = detector.detect(frame)
                     current_hero = detection.hero if detection.hero_reliable and detection.hero_confidence>=.85 else None
@@ -89,8 +96,16 @@ class VisionWorker(QThread):
                                 self.table.emit(assembler.build(detection, players, amounts))
                             except ValueError as error:
                                 message = str(error)
+                    if (not amounts.paused and detection.reliable and detection.confidence>=.85
+                            and len(detection.hero)==2 and stable.count>=3
+                            and players.reliable and players.active_seats and player_count>=3):
+                        self.equity_view.emit({'hero':list(detection.hero),'board':list(detection.board),
+                            'active_seats':list(players.active_seats)})
+                    else:
+                        self.equity_view.emit(None)
                     if self.diagnostic_path and perf_counter()-last_diagnostic>=.5:
-                        report={'timestamp':time.time(),'cards':asdict(detection),'players':asdict(players),
+                        report={'timestamp':time.time(),'window_handle':self.handle,'window_title':selected.title if selected else '',
+                            'frame_size':list(frame.shape[:2]),'cards':asdict(detection),'players':asdict(players),
                             'amounts':asdict(amounts),'message':message,'milliseconds':(perf_counter()-started)*1000}
                         try:
                             self.diagnostic_path.parent.mkdir(parents=True,exist_ok=True)

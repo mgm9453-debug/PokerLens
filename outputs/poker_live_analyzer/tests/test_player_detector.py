@@ -80,3 +80,59 @@ def test_green_only_rejects_uniform_green_background():
     assert not result.reliable
     assert not result.active_seats
 
+
+
+def test_green_avatar_letters_do_not_block_player_count():
+    from vision.player_detector import PlayerDetector,SEAT_REGIONS
+    frame=np.full((799,1128,3),35,np.uint8)
+    x,y,w,h=SEAT_REGIONS[2]
+    crop=frame[round(y*799):round((y+h)*799),round(x*1128):round((x+w)*1128)]
+    for start in (3,17,31,45):
+        cv2.rectangle(crop,(start,3),(start+5,48),(60,190,70),-1)
+    result=PlayerDetector(green_only=True).detect(frame)
+    assert result.reliable,result.reason
+    assert result.active_seats==()
+
+
+def test_shifted_green_back_is_found_by_its_emblem():
+    from vision.player_detector import PlayerDetector,SEAT_REGIONS
+    frame=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/green_backs_anonymous.png',np.uint8),1)
+    x,y,w,h=SEAT_REGIONS[2]
+    left,top=round(x*1128),round(y*799)
+    original=frame[top:top+55,left:left+60].copy()
+    frame[top:top+55,left:left+60]=35
+    frame[top+4:top+59,left+12:left+72]=original
+    result=PlayerDetector(green_only=True).detect(frame)
+    assert result.reliable,result.reason
+    assert result.active_seats==(2,5,6)
+
+
+def test_green_rectangle_without_card_emblem_is_not_a_player():
+    from vision.player_detector import PlayerDetector,SEAT_REGIONS
+    frame=np.full((799,1128,3),35,np.uint8)
+    x,y,w,h=SEAT_REGIONS[2]
+    crop=frame[round(y*799):round((y+h)*799),round(x*1128):round((x+w)*1128)]
+    crop[:]=(65,140,80)
+    crop[::6,:]=(100,180,100)
+    result=PlayerDetector(green_only=True).detect(frame)
+    assert not result.reliable
+    assert not result.active_seats
+
+
+def test_small_green_table_keeps_correct_active_seats():
+    from vision.player_detector import PlayerDetector
+    frame=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/green_backs_anonymous.png',np.uint8),1)
+    result=PlayerDetector(green_only=True).detect(cv2.resize(frame,(564,400)))
+    assert result.reliable,result.reason
+    assert result.active_seats==(2,5,6)
+
+
+def test_smooth_green_felt_without_border_does_not_block():
+    from vision.player_detector import PlayerDetector,SEAT_REGIONS
+    frame=np.full((799,1128,3),35,np.uint8)
+    x,y,w,h=SEAT_REGIONS[2]
+    crop=frame[round(y*799):round((y+h)*799),round(x*1128):round((x+w)*1128)]
+    for row in range(crop.shape[0]):crop[row,:]=(50+row//3,100+row,60+row//3)
+    result=PlayerDetector(green_only=True).detect(frame)
+    assert result.reliable,result.reason
+    assert not result.active_seats

@@ -51,7 +51,7 @@ def test_confirmed_cards_remain_visible_when_money_blocks_analysis(app,tmp_path)
     window.accept_auto_cards(token,Detection(('Ts','6s'),('Kd','Jd','9s'),.95,True))
     window.accept_auto_status(token,'金額不一致，拒絕更新')
     assert window.analysis.threat_layout.count()>0
-    assert window.analysis.probabilities.isHidden()
+    assert '%' not in window.analysis.win_label.text()
     assert '黑桃十、黑桃6' in window.live_cards.text()
     assert '方塊國王、方塊傑克、黑桃9' in window.live_cards.text()
     assert window.uncertain
@@ -209,22 +209,25 @@ def test_probabilities_and_pictures_clear_when_data_is_stale(app):
     assert panel.probabilities.isHidden()
     assert panel.threat_layout.count()==0
 
-def test_compact_threat_tiles_start_inside_viewport(app):
+def test_matrix_remains_visible_and_examples_are_in_details(app):
     from ui.analysis_panel import AnalysisPanel
-    from PySide6.QtWidgets import QWidget
     panel=AnalysisPanel()
-    panel.resize(560,520)
-    examples=[{'category':name,'hole_cards':['7h','7d'],'best_five':['7h','7d','7c','Ah','2d']}
-        for name in ['三條','兩對','一對']]
+    panel.resize(900,900)
+    examples=[{'category':'三條','hole_cards':['7h','7d'],'best_five':['7h','7d','7c','Ah','2d']}]
     panel.render({'live':True,'call_amount':100,'ev':10,'hand_strength':'一對',
+        'hero_cards':['Ah','Ad'],'community_cards':['2c','7s','9d'],
         'equity_details':{'win_probability':.6},'threats_details':{'visual_examples':examples}})
     panel.show()
     app.processEvents()
-    tile=panel.threat_layout.itemAt(1).widget()
-    point=tile.mapTo(panel.summary_scroll.viewport(),tile.rect().topLeft())
-    assert 0<=point.y()<panel.summary_scroll.viewport().height()
+    table=panel.threat_matrix.table
+    assert table.isVisible()
+    assert table.item(5,5).background().color().name()=='#c94d4d'
+    assert table.item(1,1).background().color().name()=='#0b9f68'
+    point=table.mapTo(panel,table.rect().bottomRight())
+    assert point.y()<panel.height()
+    assert not panel.threat_pictures.isVisible()
+    assert '底牌已確認' in panel.card_text.text()
     assert '%' not in panel.summary.text()
-    assert len(panel.summary.text().splitlines())<=3
     panel.close()
 
 @pytest.mark.parametrize('ev,expected',[(100,'可考慮入場'),(-100,'暫不投入'),(0,'邊界')])
@@ -271,14 +274,14 @@ def test_brief_hero_obstruction_is_marked_and_expires(app,tmp_path,monkeypatch):
     window.close()
 
 @pytest.mark.parametrize('cards',[['Ts','Th'],['Ks','Qs']])
-def test_good_preflop_hand_is_visible_and_assumed_negative_ev_is_not_fold(app,cards):
+def test_good_preflop_hand_does_not_override_negative_cost(app,cards):
     from poker.starting_hands import starting_hand_guide
     from ui.analysis_panel import AnalysisPanel
     panel=AnalysisPanel()
     panel.render({'live':True,'street':'翻牌前','range_assumed':True,'call_amount':100,'ev':-50,
         'starting_hand':starting_hand_guide(cards)})
-    assert '棄牌' not in panel.action_label.text()
-    assert '不入場' not in panel.action_label.text()
+    assert '依估算建議棄牌' in panel.action_label.text()
+    assert '100' in panel.action_label.text()
     assert '可考慮進場' in panel.summary.text()
     assert '位置' in panel.summary.text()
 
@@ -307,9 +310,56 @@ def test_all_playable_hand_groups_follow_call_cost_instead_of_hand_name(app,card
     from poker.pot_odds import call_ev
     from ui.analysis_panel import AnalysisPanel
     panel=AnalysisPanel()
-    for call,expected in [(100,'估算可跟注'),(1000,'跟注成本偏高')]:
+    for call,expected in [(100,'依估算建議跟注'),(1000,'依估算建議棄牌')]:
         panel.render({'live':True,'street':'翻牌前','range_assumed':True,'call_amount':call,
             'ev':call_ev(.4,1000,call),'starting_hand':starting_hand_guide(cards)})
         assert expected in panel.action_label.text()
-        assert '棄牌' not in panel.action_label.text()
         assert '範圍是假設' in panel.summary.text()
+
+
+def test_waiting_has_one_problem_panel_and_actionable_solution(app):
+    from ui.analysis_panel import AnalysisPanel
+    panel=AnalysisPanel()
+    panel.invalidate('等待牌桌；開啟牌局後會自動追蹤。')
+    assert not panel.issue_label.isHidden()
+    assert '目前問題：' in panel.issue_label.text()
+    assert '重新找牌桌' in panel.issue_label.text()
+    assert panel.sizing_label.isHidden()
+    assert panel.action_label.isHidden()
+    assert panel.card_strip.isHidden()
+    assert panel.summary_scroll.isHidden()
+    panel.invalidate('缺少必要金額，等待辨識：跟注額')
+    assert '跟注額' in panel.issue_label.text()
+    assert '籌碼顯示' in panel.issue_label.text()
+    panel.render({'live':True,'call_amount':0,'hero_cards':['As','Ks'],'community_cards':[]})
+    assert panel.issue_label.isHidden()
+    assert not panel.action_label.isHidden()
+    assert not panel.card_strip.isHidden()
+    panel.close()
+
+
+def test_all_in_cost_overrides_blue_starting_hand_chart(app):
+    from ui.analysis_panel import AnalysisPanel
+    panel=AnalysisPanel()
+    panel.render({'live':True,'facing_all_in':True,'call_amount':5180,'pot':6860,
+        'ev':-4000,'required_equity':5180/12040,'range_assumed':True,
+        'starting_hand':{'level':'同花發展型起手牌','advice':'測試','source':'測試','context':'測試',
+            'entry_chart':{'color':'藍色','rule':'可考慮進場'}},'street':'翻牌前'})
+    assert '建議棄牌' in panel.action_label.text()
+    assert '可考慮進場' not in panel.action_label.text()
+    assert '5,180' in panel.sizing_label.text()
+    assert '43.0%' in panel.sizing_label.text()
+    panel.close()
+
+
+def test_turn_negative_cost_gives_action_instead_of_confirmation(app):
+    from ui.analysis_panel import AnalysisPanel
+    panel=AnalysisPanel()
+    panel.render({'live':True,'street':'轉牌','range_assumed':True,'call_amount':734,
+        'pot':2894,'ev':-530,'equity':.056,'equity_details':{'win_probability':.056},
+        'hero_cards':['8d','Ah'],'community_cards':['Tc','2c','5d','7c']})
+    assert '依估算建議棄牌' in panel.action_label.text()
+    assert '734' in panel.action_label.text()
+    assert '先確認對手加注' not in panel.action_label.text()
+    assert panel.action_label.property('role_color')=='fold_color'
+    panel.close()

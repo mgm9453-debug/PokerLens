@@ -50,11 +50,13 @@ class TableAmounts:
     seat_stacks: dict[int,float] = field(default_factory=dict)
     field_reliable: dict[str,bool] = field(default_factory=dict)
     paused: bool = False
+    bb_display: bool = False
+    all_in_seats: tuple[int,...] = ()
 
 class TableDetector:
-    def __init__(self,stable_frames=3,ocr=None,pot_roi=POT_ROI,hero_stack_roi=HERO_STACK_ROI,call_roi=CALL_ROI,bet_rois=None,stack_rois=None,chip_rois=None):
+    def __init__(self,stable_frames=3,ocr=None,pot_roi=POT_ROI,hero_stack_roi=HERO_STACK_ROI,call_roi=CALL_ROI,bet_rois=None,stack_rois=None,chip_rois=None,big_blind=None):
         if stable_frames<2: raise ValueError('金額至少需要兩幀一致確認')
-        self.ocr=ocr or NativeOcrEngine()
+        self.ocr=ocr or NativeOcrEngine(big_blind=big_blind)
         self.stable_frames=stable_frames
         self.pot_roi=pot_roi; self.hero_stack_roi=hero_stack_roi; self.call_roi=call_roi
         self.bet_rois=BET_ROIS if bet_rois is None else bet_rois
@@ -80,14 +82,23 @@ class TableDetector:
             self.reset()
             return TableAmounts(None,None,None,{},False,'缺少有效牌桌影格',(perf_counter()-started)*1000)
         values={}
+        if hasattr(self.ocr,'bb_display'): self.ocr.bb_display=False
         for key,roi in [('pot',self.pot_roi),('hero_stack',self.hero_stack_roi),('call_amount',self.call_roi)]:
-            values[key]=await self.ocr.read_amount(crop(frame,roi))
+            reader=self.ocr.read_pot_amount if key=='pot' and hasattr(self.ocr,'read_pot_amount') else self.ocr.read_amount
+            values[key]=await reader(crop(frame,roi))
+        if values['pot'] is None and hasattr(self.ocr,'locate_pot'):
+            values['pot']=await self.ocr.locate_pot(crop(frame,(.25,.18,.5,.42)))
         if values['call_amount'] is None and self.call_roi==CALL_ROI:
             values['call_amount']=await self.ocr.read_amount(crop(frame,CALL_NUMBER_ROI))
-        bets={}; stacks={}
+        bets={}; stacks={}; all_in=[]
         for seat,roi in self.bet_rois.items():
             region=crop(frame,roi)
             value=await self.ocr.read_amount(region)
+            if value is None and isinstance(self.ocr,NativeOcrEngine):
+                # 保留原位置，向右擴大少量文字空間，避免大盲單位被裁切。
+                x,y,width,height=roi
+                wider=(x,y,min(width+.03,1-x),height)
+                value=await self.ocr.read_amount(crop(frame,wider))
             chip_roi=self.chip_rois.get(seat)
             no_chip=chip_roi is not None and not chip_evidence(crop(frame,chip_roi))
             if value is None and no_chip and empty_bet_evidence(region): value=0.0
@@ -95,6 +106,12 @@ class TableDetector:
             if value is not None: bets[seat]=value
         for seat,roi in self.stack_rois.items():
             value=values['hero_stack'] if seat==0 else await self.ocr.read_amount(crop(frame,roi))
+            if value is None and seat!=0 and hasattr(self.ocr,'recognize'):
+                text=await self.ocr.recognize(cv2.resize(crop(frame,roi),None,fx=3,fy=3,interpolation=cv2.INTER_CUBIC))
+                label=''.join(text.text.lower().split()) if text.available else ''
+                if label in ('allin','all-in','全下'):
+                    value=0.0
+                    all_in.append(seat)
             values[f'stack_{seat}']=value
             if value is not None: stacks[seat]=value
         # 按鈕未顯示數字時，只從全部已讀下注與自身籌碼推導跟注差額。
@@ -118,4 +135,4 @@ class TableDetector:
             text=await self.ocr.recognize(crop(frame,normalized(440,350,230,140)))
             paused=text.available and 'onbreak' in ''.join(text.text.lower().split())
             if paused: reason='牌局休息中，恢復發牌後自動更新'
-        return TableAmounts(values['pot'],values['hero_stack'],values['call_amount'],bets,reliable,reason,(perf_counter()-started)*1000,stacks,reliable_fields,paused)
+        return TableAmounts(values['pot'],values['hero_stack'],values['call_amount'],bets,reliable,reason,(perf_counter()-started)*1000,stacks,reliable_fields,paused,getattr(self.ocr,'bb_display',False),tuple(seat for seat in all_in if reliable_fields.get(f'stack_{seat}',False)))

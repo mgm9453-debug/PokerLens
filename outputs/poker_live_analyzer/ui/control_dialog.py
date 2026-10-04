@@ -28,11 +28,11 @@ class ControlDialog(QDialog):
                 self.fields[key]=spin
                 form.addRow(label,spin)
             if title=='介面顯示':
-                for key,label in [('show_chips','顯示自己與對手籌碼'),('show_threats','顯示威脅牌型小圖')]:
+                for key,label in [('auto_dock','牌桌開啟後自動縮放到旁邊'),('show_threats','顯示威脅牌型小圖')]:
                     check=QCheckBox(label)
                     self.fields[key]=check
                     form.addRow(check)
-                for key,label in [('win_color','勝率'),('tie_color','平手'),('call_color','跟注'),('fold_color','棄牌'),('check_color','過牌'),('wait_color','等待確認')]:
+                for key,label in [('win_color','勝率'),('tie_color','平手'),('call_color','跟注'),('fold_color','棄牌'),('check_color','過牌'),('wait_color','等待確認'),('matrix_background','牌型矩陣底色'),('matrix_winner','能贏我的牌：標示色')]:
                     button=QPushButton('選擇顏色')
                     button.clicked.connect(lambda checked=False,k=key:self.choose_color(k))
                     self.colors[key]=button

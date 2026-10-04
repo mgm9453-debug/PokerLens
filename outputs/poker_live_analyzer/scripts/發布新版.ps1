@@ -22,7 +22,7 @@ $Existing = git tag --list $Tag
 if ($Existing) { throw '版本標籤已存在，不可覆寫' }
 $Branch = git branch --show-current
 if (-not $Branch) { throw '請先切換到開發分支' }
-$Changed = @(git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard)
+$Changed = @(git -c core.quotePath=false diff --name-only; git -c core.quotePath=false diff --cached --name-only; git -c core.quotePath=false ls-files --others --exclude-standard)
 foreach ($Path in $Changed) {
     if ($Path -notmatch '^(outputs/poker_live_analyzer/|\.github/|README\.md$|\.gitignore$)') { throw "發現專案以外的修改，請先處理：$Path" }
 }

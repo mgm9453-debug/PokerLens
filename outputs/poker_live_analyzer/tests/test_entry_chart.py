@@ -30,8 +30,8 @@ def test_chart_decision_and_call_cost_are_both_visible(cards,color,label):
     panel=AnalysisPanel()
     panel.render({'live':True,'street':'翻牌前','range_assumed':True,'call_amount':100,'ev':-20,
         'starting_hand':starting_hand_guide(cards)})
-    assert label in panel.action_label.text()
-    assert '跟注成本偏高' in panel.action_label.text()
+    assert '依估算建議棄牌' in panel.action_label.text()
+    assert label in panel.summary.text()
     assert color in panel.summary.text()
     assert '使用者牌表' in panel.summary.text()
     panel.close()

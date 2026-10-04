@@ -9,11 +9,11 @@ def interface_font():
     if not _loaded:
         from app_paths import resource_path
         directory=resource_path('assets/fonts')
-        for name in ('Inter.ttf','NotoSansTC.ttf'):
+        for name in ('Inter.ttf','NotoSansTC.ttf','GenSenRounded-R.otf','GenSenRounded-M.otf'):
             if QFontDatabase.addApplicationFont(str(directory/name))<0:
                 raise RuntimeError('無法載入介面字體：'+name)
         _loaded=True
     font=QFont()
-    font.setFamilies(['Inter','Noto Sans TC'])
+    font.setFamilies(['Inter','GenSenRounded2 TW','Noto Sans TC'])
     font.setPointSize(11)
     return font

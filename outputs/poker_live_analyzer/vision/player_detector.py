@@ -27,12 +27,48 @@ SEAT_REGIONS = {
 class PlayerDetector:
     def __init__(self,green_only=False):
         self.green_only=green_only
+        from app_paths import resource_path
+        path=resource_path('assets/card_back_emblem.png')
+        self.emblem=cv2.imdecode(np.fromfile(path,dtype=np.uint8),cv2.IMREAD_GRAYSCALE) if path.is_file() else None
+
+    def green_state(self,crop,height):
+        hsv=cv2.cvtColor(crop,cv2.COLOR_BGR2HSV)
+        green=(hsv[:,:,0]>35)&(hsv[:,:,0]<95)&(hsv[:,:,1]>45)&(hsv[:,:,2]>55)
+        gray=cv2.cvtColor(crop,cv2.COLOR_BGR2GRAY)
+        if gray.max()<8: return 'unknown'
+        # 顏色只作候選篩選；牌背須同時具有圓形黑桃圖案。
+        if self.emblem is not None and green.mean()>.08:
+            for scale in (.65,.75,.9,1,1.1,1.25,1.4):
+                size=round(self.emblem.shape[0]*height/799*scale)
+                if size<10 or size>min(gray.shape): continue
+                template=cv2.resize(self.emblem,(size,size))
+                score=cv2.matchTemplate(gray,template,cv2.TM_CCOEFF_NORMED)
+                _,maximum,_,position=cv2.minMaxLoc(score)
+                x,y=position
+                if maximum>=.72 and green[y:y+size,x:x+size].mean()>.45:
+                    return 'active'
+        if green.mean()<.15: return 'empty'
+        # 平滑桌布沒有牌背圖案及亮色邊框；整張空白畫面已在入口拒絕。
+        border=(hsv[:,:,1]<60)&(hsv[:,:,2]>185)
+        edges=cv2.Canny(gray,60,120)
+        if border.mean()<.005 and (edges>0).mean()<.08: return 'empty'
+        # 零散文字不具有牌背面積與寬高；大片可疑物件仍保留待確認。
+        mask=np.uint8(green)*255
+        mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+        contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            _,_,w,h=cv2.boundingRect(contour)
+            area=cv2.contourArea(contour)
+            if w>=crop.shape[1]*.35 and h>=crop.shape[0]*.5 and area>=crop.shape[0]*crop.shape[1]*.18 and area/max(1,w*h)>.72:
+                return 'unknown'
+        return 'empty' if gray.std()>18 else 'unknown'
+
 
     def detect(self, frame):
         if frame is None or frame.ndim != 3 or frame.shape[2] != 3 or min(frame.shape[:2]) < 240:
             return PlayerDetection((), False, '牌桌尺寸不足，無法確認持牌人數')
         height, width = frame.shape[:2]
-        if frame.max()<8 or float(frame.std())<2:
+        if frame.max()<8 or float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).std())<2:
             return PlayerDetection((),False,'牌桌畫面為空白，等待新畫面')
         active = []
         for seat, region in SEAT_REGIONS.items():
@@ -40,6 +76,16 @@ class PlayerDetector:
             crop = frame[round(y*height):round((y+h)*height), round(x*width):round((x+w)*width)]
             if crop.size == 0:
                 return PlayerDetection((), False, f'座位 {seat} 畫面不完整')
+            if self.green_only:
+                # 容許牌背動畫或縮放造成少量位移，不把整個頭像當牌背。
+                expanded=frame[max(0,round((y-h*.12)*height)):round((y+h*1.18)*height),
+                    max(0,round((x-w*.12)*width)):round((x+w*1.18)*width)]
+                state=self.green_state(expanded,height)
+                if state=='active':
+                    active.append(seat)
+                    continue
+                if state=='empty': continue
+                return PlayerDetection((),False,f'座位 {seat} 牌背圖案不完整，正在重新確認')
             hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
             gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
             red = ((hsv[:, :, 0] < 12) | (hsv[:, :, 0] > 165)) & (hsv[:, :, 1] > 70) & (hsv[:, :, 2] > 75)

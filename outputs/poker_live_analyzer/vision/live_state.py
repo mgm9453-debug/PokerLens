@@ -40,6 +40,7 @@ class LiveStateAssembler:
             hero_stack=amounts.hero_stack, effective_stack=effective,
             players=[{'seat': s, 'stack': stacks.get(s, 0), 'stack_known': s in stacks, 'current_bet': amounts.seat_bets[s],
                 'active': s in active, 'folded': s not in active,
+                'all_in': s in getattr(amounts,'all_in_seats',()) and s in stacks,
                 'name': f'座位{s}', 'position': '籌碼已確認' if s in stacks else '籌碼未讀取'} for s in range(8)],
             ranges={str(s): 'standard' for s in players.active_seats},
             source='自動畫面', hand_id=hand_id)
