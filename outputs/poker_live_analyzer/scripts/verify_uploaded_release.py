@@ -29,8 +29,18 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     args = parser.parse_args()
     result = subprocess.run(['gh', 'api', f'repos/{args.repository}/releases/tags/{args.tag}'],
-                            check=True, capture_output=True)
-    verify_uploaded(args.directory, json.loads(result.stdout), args.tag)
+                            capture_output=True)
+    if result.returncode == 0:
+        release = json.loads(result.stdout)
+    else:
+        # 剛建立的草稿可能尚未能透過標籤端點讀取，改以草稿清單精確比對。
+        listing = subprocess.run(['gh', 'api', f'repos/{args.repository}/releases?per_page=100'],
+                                 check=True, capture_output=True)
+        matches = [item for item in json.loads(listing.stdout) if item.get('tag_name') == args.tag]
+        if len(matches) != 1:
+            raise ValueError('找不到唯一對應的版本草稿')
+        release = matches[0]
+    verify_uploaded(args.directory, release, args.tag)
     print('遠端草稿資產數量、狀態、大小及 SHA-256 均通過驗證')
 
 
