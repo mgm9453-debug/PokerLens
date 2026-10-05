@@ -178,6 +178,8 @@ class AnalysisPanel(QWidget):
         super().resizeEvent(event)
 
     def render(self, result):
+        if not result.get('equity_only') and 'ev' in result:
+            self.last_issue_message=''
         self.issue_label.setVisible(self.fixed_layout)
         if self.fixed_layout:self.issue_label.setText('資料狀態：已確認\n持續追蹤牌桌，資料變動時自動更新。')
         self.sizing_label.show()
@@ -329,13 +331,12 @@ class AnalysisPanel(QWidget):
         self.mode_notice.clear()
         self.mode_notice.hide()
         if result.get('equity_only'):
-            self.set_action('勝率已估算｜下注暫停，金額待確認','#9a6500')
+            self.show_issue(self.last_issue_message or '下注金額尚未確認')
+            self.set_action('勝率已估算｜等待資料確認','#9a6500')
             self.sizing_label.setText('下注金額：資料未確認，暫不提供')
             self.summary.setText(f'目前牌型：{result.get("hand_strength","")}｜對手 {result.get("opponents",0)} 人\n依假設對手範圍估算勝率，金額確認後再分析跟注成本。')
             self.extra.setText(f'快速估算 {result.get("simulation_count",0):,} 次；對手範圍是假設。未使用未知金額計算期望值。')
         self.threat_pictures.setVisible('threats_details' in result)
-        if result.get('equity_only'):
-            self.show_issue(self.last_issue_message or '下注金額尚未確認')
         examples=result.get('threats_details',{}).get('visual_examples',[])
         if examples:
             stage=result.get('street','目前公共牌')

@@ -24,7 +24,21 @@ def empty_bet_evidence(image):
     # 黑畫面與有明顯物件的區域不能推論零下注。
     if not image.size: return False
     gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-    return bool(15<float(gray.mean())<210 and gray.std()<12 and not cv2.Canny(gray,30,70).any())
+    height,width=gray.shape
+    margin=max(1,round(width*.1))
+    interior=gray[:,margin:-margin] if width>2*margin else gray
+    if not (15<float(interior.mean())<210 and interior.std()<12):return False
+    edges=cv2.Canny(gray,30,70)
+    _,_,stats,_=cv2.connectedComponentsWithStats(edges,8)
+    noise=0
+    for x,y,w,h,area in stats[1:]:
+        # 頭像輪廓可能擦過區域側邊；只能忽略貼邊且細長的輪廓。
+        border=(x==0 or x+w==width) and w<=max(2,width*.08) and h>=height*.7
+        if border:continue
+        # 桌布的孤立細點不能當成數字；真正的筆畫仍拒絕推論為零。
+        if w>max(2,np.ceil(width*.1)) or h>max(2,np.ceil(height*.1)):return False
+        noise+=area
+    return noise<=gray.size*.01
 
 def chip_evidence(image):
     if not image.size: return True
@@ -94,11 +108,19 @@ class TableDetector:
         for seat,roi in self.bet_rois.items():
             region=crop(frame,roi)
             value=await self.ocr.read_amount(region)
-            if value is None and isinstance(self.ocr,NativeOcrEngine):
-                # 保留原位置，向右擴大少量文字空間，避免大盲單位被裁切。
-                x,y,width,height=roi
-                wider=(x,y,min(width+.03,1-x),height)
-                value=await self.ocr.read_amount(crop(frame,wider))
+            if isinstance(self.ocr,NativeOcrEngine):
+                gray=cv2.cvtColor(region,cv2.COLOR_BGR2GRAY)
+                edge=max(1,round(gray.shape[1]*.06))
+                middle=gray[round(gray.shape[0]*.2):round(gray.shape[0]*.85)]
+                threshold=max(100,float(np.median(gray))+40)
+                clipped=bool((middle[:,:edge]>threshold).any() or (middle[:,-edge:]>threshold).any())
+                if value is None or clipped:
+                    # 只有筆畫貼邊或讀不到時才向左右擴大，避免加入旁邊的裝飾。
+                    x,y,width,height=roi
+                    left=max(0,x-.025)
+                    wider=(left,y,min(width+.055,1-left),height)
+                    complete=await self.ocr.read_amount(crop(frame,wider))
+                    if complete is not None:value=complete
             chip_roi=self.chip_rois.get(seat)
             no_chip=chip_roi is not None and not chip_evidence(crop(frame,chip_roi))
             if value is None and no_chip and empty_bet_evidence(region): value=0.0
@@ -118,6 +140,16 @@ class TableDetector:
         # 空白按鈕本身不提供任何零金額證據。
         if values['call_amount'] is None and values['hero_stack'] is not None and set(bets)==set(range(8)):
             values['call_amount']=min(values['hero_stack'],max(0,max(bets.values())-bets[0]))
+        elif (values['hero_stack'] is not None and set(bets)==set(range(8))
+                and isinstance(self.ocr,NativeOcrEngine)):
+            expected=min(values['hero_stack'],max(0,max(bets.values())-bets[0]))
+            if abs(values['call_amount']-expected)>.01:
+                # 不直接把小數點改成千分位；重新讀筆畫並與獨立下注差額核對。
+                for roi in ([self.call_roi,CALL_NUMBER_ROI] if self.call_roi==CALL_ROI else [self.call_roi]):
+                    confirmed=await self.ocr.read_amount_matching(crop(frame,roi),expected)
+                    if confirmed is not None:
+                        values['call_amount']=confirmed
+                        break
         reliable_fields={key:self.stable(key,value) for key,value in values.items()}
         missing=[key for key in ('pot','hero_stack','call_amount') if values[key] is None]
         core_stable=all(reliable_fields[key] for key in ('pot','hero_stack','call_amount'))

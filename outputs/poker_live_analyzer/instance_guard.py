@@ -29,10 +29,15 @@ class InstanceGuard:
     def bind(self, window):
         def activate():
             socket = self.server.nextPendingConnection()
+            if hasattr(window,'restore_main'):
+                window.restore_main()
+            else:
+                window.showNormal()
+                window.raise_()
+                window.activateWindow()
             if socket:
-                socket.close()
+                socket.write(b'shown')
+                socket.flush()
+                socket.disconnectFromServer()
                 socket.deleteLater()
-            window.showNormal()
-            window.raise_()
-            window.activateWindow()
         self.server.newConnection.connect(activate)

@@ -1,4 +1,5 @@
 import json
+import logging
 from time import monotonic
 from pathlib import Path
 from threading import Event
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         self.capture_worker = None
         self.vision_worker = None
         self.dock_key=None
+        self.floating_mode=False
         self.auto_active = False
         self.auto_waiting = False
         self.auto_watch = False
@@ -351,15 +353,24 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def show_floating(self):
-        self.hide()
+        self.floating_mode=True
+        self.overlay.adjustSize()
+        area=self.screen().availableGeometry()
+        position=self.overlay.pos()
+        self.overlay.move(max(area.left(),min(position.x(),area.right()-self.overlay.width()+1)),
+                          max(area.top(),min(position.y(),area.bottom()-self.overlay.height()+1)))
         self.overlay.show()
         self.overlay.raise_()
+        self.hide()
+        logging.info('使用者收合主視窗，懸浮窗已顯示')
 
     def restore_main(self):
-        self.overlay.hide()
+        self.floating_mode=False
         self.showNormal()
+        self.overlay.hide()
         self.raise_()
         self.activateWindow()
+        logging.info('主視窗已重新顯示')
 
     def capture_status(self):
         if not self.auto_active:
@@ -579,7 +590,7 @@ class MainWindow(QMainWindow):
             self.auto_status.setText(str(error))
 
     def dock_beside_table(self,table):
-        if not self.auto_active or not self.control_options['auto_dock']: return
+        if self.floating_mode or not self.auto_active or not self.control_options['auto_dock']: return
         from .window_placement import table_screen,free_regions,choose_region
         screen,rect=table_screen(table,QApplication.screens())
         area=screen.availableGeometry()
@@ -1190,3 +1201,5 @@ class MainWindow(QMainWindow):
         self.generation+=1
         self.repository.close()
         event.accept()
+        logging.info('背景工作與資料庫已關閉，要求程式退出')
+        QTimer.singleShot(0,QApplication.instance().quit)

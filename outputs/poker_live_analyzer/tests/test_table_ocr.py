@@ -30,6 +30,64 @@ def test_black_unknown_region_is_not_zero_bet():
     from vision.table_detector import empty_bet_evidence
     assert not empty_bet_evidence(np.zeros((37,70,3),np.uint8))
 
+def test_matching_amount_never_rewrites_an_unconfirmed_decimal():
+    from vision.ocr_engine import OcrText
+    class Ocr(NativeOcrEngine):
+        def __init__(self):self.big_blind=None;self.bb_display=False
+        async def recognize(self,image):return OcrText('6.366',True)
+    image=np.full((32,100,3),90,np.uint8)
+    assert asyncio.run(Ocr().read_amount_matching(image,6366)) is None
+
+def test_tiny_table_texture_is_not_a_missing_bet():
+    from vision.table_detector import empty_bet_evidence
+    image=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/empty_bet_texture.png',np.uint8),1)
+    assert empty_bet_evidence(image)
+    # 空區能忽略微小紋理，真正的數字筆畫仍須拒絕當成零。
+    cv2.putText(image,'1',(18,32),cv2.FONT_HERSHEY_SIMPLEX,.7,(240,240,240),1)
+    assert not empty_bet_evidence(image)
+
+def test_thin_avatar_border_does_not_block_empty_bet():
+    from vision.table_detector import empty_bet_evidence
+    image=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/empty_bet_border.png',np.uint8),1)
+    assert empty_bet_evidence(image)
+    cv2.putText(image,'80',(20,30),cv2.FONT_HERSHEY_SIMPLEX,.7,(240,240,240),2)
+    assert not empty_bet_evidence(image)
+
+@pytest.mark.skipif(sys.platform!='win32',reason='需要原生文字辨識')
+def test_visible_turn_button_recovers_after_empty_border_and_punctuation():
+    image=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/turn_button_amounts_anonymous.png',np.uint8),1)
+    async def check():
+        detector=TableDetector(big_blind=3000)
+        for _ in range(3):result=await detector.detect(image)
+        assert result.reliable,result.reason
+        assert result.pot==13266
+        assert result.hero_stack==26450
+        assert result.seat_bets[1]==0
+        assert result.seat_bets[7]==6366
+        assert result.call_amount==6366
+    asyncio.run(check())
+
+def test_texture_does_not_block_stable_call_difference():
+    from vision.table_detector import crop
+    image=np.full((909,1302,3),90,np.uint8)
+    region=crop(image,BET_ROIS[7])
+    region[:]=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/empty_bet_texture.png',np.uint8),1)
+    class Ocr:
+        def __init__(self):self.index=0
+        async def read_amount(self,image):
+            values=[4600,27150,None,1000,2000]+[None]*6+[10000]*7
+            value=values[self.index%len(values)];self.index+=1
+            return value
+    async def check():
+        detector=TableDetector(ocr=Ocr(),call_roi=(0,0,.1,.1))
+        results=[await detector.detect(image) for _ in range(3)]
+        assert not results[0].reliable
+        result=results[-1]
+        assert result.reliable,result.reason
+        assert result.seat_bets[7]==0
+        assert result.call_amount==1000
+    asyncio.run(check())
+
 def test_inconsistent_pot_reports_values_and_stays_unreliable():
     class Ocr:
         def __init__(self): self.index=0
@@ -73,6 +131,15 @@ def test_real_native_ocr_and_multiframe():
         assert blank.pot is None and blank.call_amount is None
         assert 1 not in blank.seat_bets
     asyncio.run(check())
+
+def test_lowcontrast_texture_at_pixel_boundary_is_empty():
+    from vision.table_detector import empty_bet_evidence
+    image=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures/empty_bet_lowcontrast_texture.png',np.uint8),1)
+    assert empty_bet_evidence(image)
+    written=image.copy()
+    cv2.putText(written,'150',(15,26),cv2.FONT_HERSHEY_SIMPLEX,.65,(210,210,210),1)
+    assert not empty_bet_evidence(written)
+
 
 def test_chip_with_missing_amount_never_becomes_zero():
     image=cv2.imdecode(np.fromfile(Path(__file__).parent/'fixtures'/'amounts_anonymous.png',np.uint8),1)

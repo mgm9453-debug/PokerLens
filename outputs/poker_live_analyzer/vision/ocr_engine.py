@@ -115,6 +115,20 @@ class NativeOcrEngine:
         # 有效候選必須一致；不同處理得到不同金額時不採用。
         return unique_amount(texts,self.big_blind)
 
+    async def read_amount_matching(self,image,expected):
+        """須由至少兩種文字處理確認差額，不把猜測的金額塞回辨識結果。"""
+        if image is None or not image.size:return None
+        gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY) if image.ndim==3 else image
+        binary=cv2.threshold(gray,0,255,cv2.THRESH_BINARY|cv2.THRESH_OTSU)[1]
+        matches=0
+        for prepared in (gray,binary,255-binary):
+            prepared=cv2.copyMakeBorder(prepared,10,10,10,10,cv2.BORDER_CONSTANT,value=int(prepared[0,0]))
+            result=await self.recognize(cv2.resize(prepared,None,fx=3,fy=3,interpolation=cv2.INTER_LINEAR))
+            self.bb_display=self.bb_display or bool(re.search(r'BB\b',result.text,re.I))
+            value=parse_amount(result.text,self.big_blind) if result.available else None
+            if value is not None and abs(value-expected)<=.01:matches+=1
+        return expected if matches>=2 else None
+
     async def locate_pot(self,image):
         """移位底池只採用帶有底池標籤的文字區，避免抓到下注與籌碼。"""
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)

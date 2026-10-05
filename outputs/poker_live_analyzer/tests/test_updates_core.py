@@ -287,10 +287,24 @@ def test_launcher_busy_activates_existing_window(tmp_path, monkeypatch):
     import sys
     def busy(*args): raise UpdateError('另一個啟動或更新程序正在處理')
     monkeypatch.setattr(launcher, 'launch', busy)
-    monkeypatch.setattr(launcher, 'activate_existing', lambda:True)
+    monkeypatch.setattr(launcher, 'activate_existing', lambda directory:True)
     monkeypatch.setattr(launcher, 'show_error', lambda message:pytest.fail('已喚回視窗不應報錯'))
     monkeypatch.setattr(sys, 'argv', ['launcher','--root',str(tmp_path),'--data',str(tmp_path/'data')])
     assert launcher.main() == 0
+
+
+def test_launcher_busy_passes_user_data_to_window_activation(tmp_path, monkeypatch):
+    import launcher
+    import sys
+    calls=[]
+    def busy(*args):raise UpdateError('另一個啟動或更新程序正在處理')
+    monkeypatch.setattr(launcher,'launch',busy)
+    monkeypatch.setattr(launcher,'activate_existing',lambda directory:calls.append(directory) or True)
+    monkeypatch.setattr(launcher,'show_error',lambda message:pytest.fail('已喚回程式不應報錯'))
+    directory=tmp_path/'data'
+    monkeypatch.setattr(sys,'argv',['launcher','--root',str(tmp_path),'--data',str(directory)])
+    assert launcher.main()==0
+    assert calls==[directory]
 
 def test_corrupt_health_file_is_not_accepted(tmp_path):
     from updates.health import is_healthy

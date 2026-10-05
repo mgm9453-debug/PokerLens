@@ -4,6 +4,33 @@ from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
 
+def test_probability_preview_keeps_its_action_and_missing_amount_reason(tmp_path):
+    from ui.analysis_panel import AnalysisPanel
+    app=QApplication.instance() or QApplication([])
+    panel=AnalysisPanel();panel.dark_theme=True;panel.enable_fixed_layout()
+    try:
+        panel.invalidate('缺少必要金額，等待辨識：跟注額')
+        panel.render({'live':True,'equity_only':True,'hero_cards':['As','Ks'],
+            'community_cards':[],'equity':.6,'equity_details':{'win_probability':.58},
+            'tie_probability':.02,'opponents':1})
+        assert '58.0%' in panel.win_label.text()
+        assert '勝率已估算' in panel.action_label.text()
+        assert '等待資料確認' in panel.action_label.text()
+        assert '跟注額' in panel.issue_label.text()
+        assert '假設對手範圍' in panel.summary.text()
+        assert '過牌' not in panel.action_label.text()
+        assert not panel.action_label.isHidden()
+        panel.render({'live':True,'hero_cards':['As','Ks'],'community_cards':[],
+            'call_amount':500,'pot':2000,'ev':300,'range_assumed':True,
+            'equity_details':{'win_probability':.58},'tie_probability':.02})
+        assert '跟注 500' in panel.action_label.text()
+        assert panel.last_issue_message==''
+        panel.render({'live':True,'equity_only':True,'hero_cards':['As','Ks'],
+            'community_cards':[],'equity_details':{'win_probability':.58}})
+        assert '跟注額' not in panel.issue_label.text()
+    finally:panel.close()
+
+
 def test_money_failure_keeps_card_only_probability(tmp_path):
     app=QApplication.instance() or QApplication([])
     window=MainWindow(data_dir=tmp_path,auto_demo=False)
