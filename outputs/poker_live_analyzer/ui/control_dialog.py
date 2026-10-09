@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QWidget,QTabWidge
 from control_settings import DEFAULTS,LIMITS,validate
 
 class ControlDialog(QDialog):
-    def __init__(self,values,apply_callback,status_callback,parent=None,update_controller=None):
+    def __init__(self,values,apply_callback,status_callback,parent=None,update_controller=None,calibration_callback=None):
         super().__init__(parent)
         from .fonts import interface_font
         self.setFont(interface_font())
@@ -55,6 +55,16 @@ class ControlDialog(QDialog):
                 note=QLabel('先給快速結果，再提升到選定精度。\n範圍會影響勝率；下注比例是試算，不是完整最佳策略。')
                 note.setWordWrap(True)
                 form.addRow(note)
+        page=QWidget()
+        calibration_layout=QVBoxLayout(page)
+        note=QLabel('一、選擇牌桌，更新預覽。\n二、選擇讀不到的欄位，在預覽上拖曳框選。\n三、驗證讀取正確後，鎖定並儲存。\n\n只需框選需要修正的位置；其他欄位沿用自動定位。\n對手牌背請先設為綠色，金額請使用籌碼顯示。')
+        note.setWordWrap(True)
+        calibration_layout.addWidget(note)
+        self.calibration_button=QPushButton('框選與校準辨識位置')
+        self.calibration_button.clicked.connect(calibration_callback or self.open_calibration)
+        calibration_layout.addWidget(self.calibration_button)
+        calibration_layout.addStretch()
+        tabs.addTab(page,'辨識位置')
         if update_controller is not None:
             tabs.addTab(update_controller.create_about_page(),'關於與更新')
         self.status=QLabel()
@@ -77,6 +87,29 @@ class ControlDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.load(values)
+    def open_calibration(self):
+        from app_paths import user_data_dir
+        from .calibration_dialog import CalibrationDialog
+        self.calibration_dialog=CalibrationDialog(user_data_dir()/'profiles'/'recognition.json',
+            lambda:self.message.setText('辨識位置已儲存；分析器會自動套用。'),self)
+        self.calibration_dialog.exec()
+    def wait_for_calibration_close(self,callback):
+        dialog=getattr(self,'calibration_dialog',None)
+        if dialog is None or dialog.worker is None:
+            return False
+        if not getattr(self,'_calibration_close_pending',False):
+            self._calibration_close_pending=True
+            dialog.finished.connect(lambda:QTimer.singleShot(0,callback))
+        dialog.close()
+        return True
+    def done(self,result):
+        if not self.wait_for_calibration_close(lambda:self.done(result)):
+            super().done(result)
+    def closeEvent(self,event):
+        if self.wait_for_calibration_close(self.close):
+            event.ignore()
+        else:
+            super().closeEvent(event)
     def load(self,values):
         for key,field in self.fields.items():
             if isinstance(field,QSpinBox): field.setValue(values[key])

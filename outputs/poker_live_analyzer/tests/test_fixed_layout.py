@@ -20,9 +20,10 @@ def test_waiting_does_not_move_matrix_or_keep_old_probabilities():
     assert '等待資料確認' in panel.action_label.text()
     assert 's＝同花' in panel.threat_matrix.caption.text()
     assert not panel.threat_matrix.isEnabled()
-    assert panel.threat_matrix.table.item(5,5).background().color().name()==color
+    assert panel.threat_matrix.table.item(5,5).background().color().name()=='#0b9f68'
     panel.render(result);app.processEvents()
     assert panel.threat_matrix.pos()==position
     assert panel.threat_matrix.isEnabled()
+    assert panel.threat_matrix.table.item(5,5).background().color().name()==color
     assert '70.0%' in panel.win_label.text()
     panel.close()

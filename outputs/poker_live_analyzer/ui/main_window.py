@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from time import monotonic
 from pathlib import Path
 from threading import Event
@@ -11,6 +12,7 @@ from capture.worker import CaptureWorker
 from capture.screen_capture import ScreenCapture
 from capture.obs_capture import ObsCapture
 from capture.profiles import TableProfile
+from capture.calibration import CalibrationStore
 from ui.roi_editor import RoiEditor
 from ui.analysis_panel import AnalysisPanel
 from ui.table_overlay import TableOverlay
@@ -96,9 +98,16 @@ class MainWindow(QMainWindow):
             try: write(self.control_options,self.control_path)
             except OSError: pass
         self.capture_last_frame=0.0
+        self.live_decision_time=0.0
+        self._live_data_expired=False
         self.capture_title='尚未選定牌桌'
         self.profile_dir = self.data_dir / 'profiles'
         self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.calibration_path=self.profile_dir/'recognition.json'
+        self.calibration_store=CalibrationStore(self.calibration_path)
+        self.calibration_stamp=self.calibration_file_stamp()
+        self.calibration_dialog=None
+        self.calibration_restarting=False
         self.detector = StateDetector()
         self.repository = StateRepository(self.data_dir / 'history.sqlite3')
         stored_events = self.repository.list_events()
@@ -109,6 +118,7 @@ class MainWindow(QMainWindow):
         self.dock_key=None
         self.floating_mode=False
         self.auto_active = False
+        self.live_hero_turn=None
         self.auto_waiting = False
         self.auto_watch = False
         self.auto_monitor = QTimer(self)
@@ -349,8 +359,70 @@ class MainWindow(QMainWindow):
     def open_control_settings(self):
         from ui.control_dialog import ControlDialog
         dialog=ControlDialog(self.control_options,self.save_control_settings,self.capture_status,self,
-                             update_controller=getattr(self,'update_controller',None))
+                             update_controller=getattr(self,'update_controller',None),
+                             calibration_callback=self.open_calibration)
         dialog.exec()
+
+    def calibration_file_stamp(self):
+        try:
+            stat=self.calibration_path.stat()
+            return stat.st_mtime_ns,stat.st_size
+        except OSError:
+            return None
+
+    def open_calibration(self):
+        from .calibration_dialog import CalibrationDialog
+        handle=self.vision_worker.handle if self.vision_worker else self.table_choice.currentData()
+        dialog=CalibrationDialog(self.calibration_path,self.calibration_saved,self,initial_handle=handle)
+        self.calibration_dialog=dialog
+        try:
+            dialog.exec()
+        finally:
+            self.calibration_dialog=None
+            dialog.deleteLater()
+
+    def calibration_saved(self):
+        self.calibration_stamp=self.calibration_file_stamp()
+        dialog=self.calibration_dialog
+        if dialog is not None and dialog.selected_handle is not None:
+            self.refresh_table_choices()
+            index=self.table_choice.findData(dialog.selected_handle)
+            if index>=0:
+                self.table_choice.setCurrentIndex(index)
+        if not (self.auto_active or self.auto_waiting or self.auto_watch):
+            self.statusBar().showMessage('辨識位置已儲存，下次開始自動辨識時套用。')
+            return
+        if self.calibration_restarting:
+            return
+        self.calibration_restarting=True
+        self.auto_monitor.stop()
+        # 先撤回舊建議；舊執行緒停止後才啟動新區域，避免資料交錯。
+        self.auto_generation+=1
+        self.accept_equity_view(self.auto_generation,None)
+        self.card_threat_key=self.card_threat_result=None
+        self.last_hero_names=''
+        self.show_error('辨識位置已變更，正在套用並重新確認資料。')
+        worker=self.vision_worker
+        if worker is not None:
+            worker.finished.connect(lambda:self.finish_calibration_restart(worker))
+            worker.requestInterruption()
+            if not worker.isRunning():
+                QTimer.singleShot(0,lambda:self.finish_calibration_restart(worker))
+        else:
+            self.finish_calibration_restart(None)
+
+    def finish_calibration_restart(self,worker):
+        self.calibration_restarting=False
+        if getattr(self,'_closed',False) or not self.auto_watch:
+            return
+        if worker is not None:
+            if self.vision_worker is not worker:
+                return
+            worker.deleteLater()
+            self.vision_worker=None
+        self.auto_active=False
+        self.auto_waiting=False
+        self.toggle_auto()
 
     def show_floating(self):
         self.floating_mode=True
@@ -378,6 +450,33 @@ class MainWindow(QMainWindow):
         fresh=self.capture_last_frame>0 and monotonic()-self.capture_last_frame<2
         return f'視窗內容擷取｜{"正常更新" if fresh else "等待新畫面"}\n{self.capture_title}\n其他視窗可遮擋牌桌；牌桌最小化或停止更新時暫停建議。'
 
+    def accept_auto_frame(self,token,received):
+        """只接受來源的新影格時間，不用處理完成時間刷新舊畫面。"""
+        if token!=self.auto_generation or not self.auto_active:return
+        if type(received) not in (int,float) or not math.isfinite(received):return
+        now=monotonic()
+        if received<=self.capture_last_frame or received>now+.05:return
+        self.capture_last_frame=received
+        if now-received<=2:self._live_data_expired=False
+
+    def check_live_freshness(self):
+        """介面自行撤回逾期資料，背景辨識卡住也不保留舊指令。"""
+        if not self.auto_active:return True
+        now=monotonic()
+        stale=self.capture_last_frame>0 and now-self.capture_last_frame>2
+        stale=stale or (self.result is not None and self.capture_last_frame>0
+            and self.live_decision_time>0 and now-self.live_decision_time>2)
+        if not stale:return not self._live_data_expired
+        if not self._live_data_expired:
+            self._live_data_expired=True
+            self.live_hero_turn=None
+            self.equity_cache=None
+            self.card_threat_result=None
+            self.card_threat_key=None
+            self.accept_equity_view(self.auto_generation,None)
+            self.show_error('牌桌資料已逾期，舊建議已撤回；等待新的可靠畫面')
+        return False
+
     def save_control_settings(self,options):
         from control_settings import write
         write(options,self.control_path)
@@ -390,6 +489,9 @@ class MainWindow(QMainWindow):
             if options!=self.control_options: self.apply_control_options(options)
         except (ValueError,OSError):
             self.statusBar().showMessage('設定檔無效，繼續使用最後有效設定')
+        stamp=self.calibration_file_stamp()
+        if stamp!=self.calibration_stamp:
+            self.calibration_saved()
 
     def apply_control_options(self,options):
         from control_settings import validate
@@ -478,6 +580,7 @@ class MainWindow(QMainWindow):
             for worker in self.workers:
                 if isinstance(worker,EquityPreviewWorker): worker.cancel.set()
             return
+        if not self.check_live_freshness():return
         key=(token,tuple(observation['hero']),tuple(observation['board']),
             tuple(observation['active_seats']),self.control_options['opponent_range'])
         self.partial_equity_time=monotonic()
@@ -496,14 +599,16 @@ class MainWindow(QMainWindow):
 
     def accept_equity_result(self,key,result):
         if key!=self.partial_equity_key or not self.auto_active: return
+        if not self.check_live_freshness():return
         self.partial_equity_result=result
         self.render_equity_preview()
 
     def render_equity_preview(self):
         if self.partial_equity_result is None or self.result is not None or self.replay_mode: return
+        if not self.check_live_freshness():return
         if monotonic()-self.partial_equity_time>1.5: return
-        self.analysis.render(self.partial_equity_result)
-        self.overlay.render({**self.partial_equity_result,'action_text':'勝率已估算｜下注暫停，金額待確認',
+        self.analysis.render({**self.partial_equity_result,'hero_turn':self.live_hero_turn})
+        self.overlay.render({**self.partial_equity_result,'action_text':self.analysis.action_label.text(),
             'sizing_advice':'下注金額：等待確認'}, {})
 
     def form_edited(self):
@@ -551,6 +656,9 @@ class MainWindow(QMainWindow):
         self.auto_monitor.start()
         self.set_live_layout()
         try:
+            calibration=self.calibration_store.load()
+            if calibration is not None and not calibration.locked:
+                calibration=None
             tables = [table for table in list_tables() if '盲注' in table.title or 'blind' in table.title.lower()]
             if not tables:
                 self.auto_waiting = True
@@ -561,6 +669,8 @@ class MainWindow(QMainWindow):
             selected = self.selected_table(tables)
             self.capture_title=selected.title
             self.capture_last_frame=0.0
+            self.live_decision_time=0.0
+            self._live_data_expired=False
             self.clear_simple()
             self.save_control_settings({**self.control_options,'bounty_active':False,
                 'bounty_known':False,'rake_known':False})
@@ -574,7 +684,7 @@ class MainWindow(QMainWindow):
             self.auto_status.setText('正在讀取牌桌視窗內容；可被其他視窗遮擋，請勿最小化')
             self.dock_key=None
             QTimer.singleShot(0,lambda:self.dock_beside_table(selected))
-            self.vision_worker = VisionWorker(selected.handle, self, diagnostic_path=self.data_dir/'辨識狀態.json')
+            self.vision_worker = VisionWorker(selected.handle, self, diagnostic_path=self.data_dir/'辨識狀態.json',calibration=calibration)
             self.vision_worker.refresh_ms=self.control_options['refresh_ms']
             self.vision_worker.cards.connect(lambda result: self.accept_auto_cards(token, result))
             self.vision_worker.hero_view.connect(lambda result: self.accept_auto_hero(token,result))
@@ -585,9 +695,32 @@ class MainWindow(QMainWindow):
             self.vision_worker.unavailable.connect(lambda message: self.accept_auto_unavailable(token, message))
             self.vision_worker.status.connect(lambda message: self.accept_auto_status(token, message))
             self.vision_worker.timing.connect(lambda milliseconds: self.accept_auto_timing(token, milliseconds))
+            if hasattr(self.vision_worker,'frame_received'):
+                self.vision_worker.frame_received.connect(lambda received:self.accept_auto_frame(token,received))
+            self.vision_worker.finished.connect(lambda:self.vision_reader_finished(token))
             self.vision_worker.start()
         except Exception as error:
+            self.auto_active=False
+            self.auto_waiting=False
+            self.auto_watch=False
+            self.auto_monitor.stop()
+            self.auto_button.setText('開啟自動辨識')
             self.auto_status.setText(str(error))
+            self.show_error(str(error))
+
+    def vision_reader_finished(self,token):
+        if token!=self.auto_generation or not self.auto_active:
+            return
+        worker=self.vision_worker
+        self.vision_worker=None
+        self.auto_active=False
+        self.auto_waiting=False
+        self.auto_watch=False
+        self.auto_monitor.stop()
+        self.auto_button.setText('開啟自動辨識')
+        if worker is not None:
+            worker.deleteLater()
+        self.statusBar().showMessage('辨識工作已停止；處理提示的問題後可重新開啟。')
 
     def dock_beside_table(self,table):
         if self.floating_mode or not self.auto_active or not self.control_options['auto_dock']: return
@@ -612,7 +745,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('已自動移到牌桌旁；可在調整設定關閉。')
 
     def monitor_auto(self):
-        if not self.auto_watch:
+        if not self.auto_watch or self.calibration_restarting:
             return
         tables = [table for table in list_tables() if '盲注' in table.title or 'blind' in table.title.lower()]
         if self.auto_waiting and tables:
@@ -651,23 +784,37 @@ class MainWindow(QMainWindow):
             self.card_threat_result=None
             self.card_threat_key=None
             self.analysis.invalidate('畫面暫停，等待恢復')
+            self.analysis.show_issue(message)
             self.live_cards.setText('底牌：擷取暫停，等待畫面恢復')
             self.live_numbers.setText(f'牌桌資料暫停更新\n{message}')
 
     def accept_auto_timing(self, token, milliseconds):
-        if token==self.auto_generation and self.auto_active: self.capture_last_frame=monotonic()
         if token == self.auto_generation and self.auto_active and not self.uncertain:
             self.auto_status.setText(f'自動辨識中｜每幀 {milliseconds:.0f} 毫秒｜連續三幀確認牌面')
 
     def accept_auto_amounts(self, token, amounts):
         if token != self.auto_generation or not self.auto_active:
             return
+        if not self.check_live_freshness():return
         from .equity_preview import EquityPreviewWorker
+        turn=getattr(amounts,'hero_turn',None)
+        if self.live_hero_turn is True and turn is not True:
+            self.result=None
+            self.generation+=1
+            for worker in self.workers:
+                if not isinstance(worker,EquityPreviewWorker):worker.cancel.set()
+            message='等待對手行動' if turn is False else '確認自身回合｜暫停行動建議'
+            self.analysis.set_action(message,'#9a6500')
+            self.analysis.sizing_label.setText('下注建議：等待輪到自己')
+            self.overlay.invalidate(message)
+        self.live_hero_turn=turn
         state=self.detector.state
         if state is not None and self.result is not None:
             changed=any(value is None or abs(value-old)>.01 for value,old in
                 ((amounts.pot,state.pot),(amounts.call_amount,state.call_amount),(amounts.hero_stack,state.hero_stack)))
-            changed=changed or any(p.current_bet!=amounts.seat_bets.get(p.seat) for p in state.players)
+            # 未知下注不是新金額；只撤回有獨立可靠證據的下注變動。
+            changed=changed or any(p.bet_known and amounts.field_reliable.get(f'bet_{p.seat}',False)
+                and p.current_bet!=amounts.seat_bets.get(p.seat) for p in state.players)
             if changed:
                 self.result=None
                 self.generation+=1
@@ -702,6 +849,7 @@ class MainWindow(QMainWindow):
     def accept_auto_cards(self, token, detection):
         if token != self.auto_generation or not self.auto_active:
             return
+        if not self.check_live_freshness():return
         suits={'s':'黑桃','c':'梅花','h':'紅心','d':'方塊'}
         ranks={'T':'十','J':'傑克','Q':'皇后','K':'國王','A':'王牌'}
         def names(cards):
@@ -744,6 +892,7 @@ class MainWindow(QMainWindow):
 
     def accept_auto_hero(self,token,observation):
         if token!=self.auto_generation or not self.auto_active: return
+        if not self.check_live_freshness():return
         hero,board=observation['hero'],observation['board']
         if not hero or board is None or not board:
             self.card_threat_result=None
@@ -785,6 +934,7 @@ class MainWindow(QMainWindow):
             self.vision_worker.deleteLater()
             self.vision_worker = None
         self.auto_active = False
+        self.live_hero_turn=None
         self.last_hero_names=''
         self.auto_waiting = False
         self.auto_watch = False
@@ -809,6 +959,7 @@ class MainWindow(QMainWindow):
     def accept_auto_table(self, token, observation):
         if token != self.auto_generation or not self.auto_active:
             return
+        if not self.check_live_freshness():return
         try:
             observation=dict(observation)
             observation['ranges']={str(p['seat']):self.control_options['opponent_range'] for p in observation['players']
@@ -818,6 +969,7 @@ class MainWindow(QMainWindow):
             if self.detector.last_error:
                 raise ValueError(self.detector.last_error)
             self.uncertain = False
+            self.live_decision_time=self.capture_last_frame or monotonic()
             self.simple_dirty = False
             self.replay_mode = False
             self.render_state(state.to_dict())
@@ -941,6 +1093,7 @@ class MainWindow(QMainWindow):
     def analysis_ready(self, version, result):
         if getattr(self,'_closed',False) or version != self.detector.version:
             return
+        if self.auto_active and not self.check_live_freshness():return
         self.result = result.to_dict()
         self.result['pot']=self.detector.state.pot
         self.result['hero_cards']=list(self.detector.state.hero_cards)
@@ -955,6 +1108,7 @@ class MainWindow(QMainWindow):
             self.equity_cache = (AnalysisEngine.equity_key(self.detector.state, self.settings.seed.value()), EquityResult(**result.equity_details))
             self.result['facing_all_in']=any(p.all_in for p in state.players if p.seat!=state.hero_seat and p.active and not p.folded)
             self.result.update(live=True, range_assumed=True, street=self.detector.state.street, call_amount=self.detector.state.call_amount,
+                hero_turn=state.hero_turn,
                 effective_stack=self.detector.state.effective_stack,
                 opponents=sum(p.active and not p.folded and p.seat != self.detector.state.hero_seat for p in self.detector.state.players))
             if any(not p.stack_known for p in self.detector.state.players if p.active and not p.folded):
@@ -1081,6 +1235,7 @@ class MainWindow(QMainWindow):
         return True
 
     def poll_frame(self):
+        self.check_live_freshness()
         if self.capture_worker:
             frame = self.capture_worker.buffer.get()
             if frame is not None:
@@ -1177,6 +1332,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0,self.close)
 
     def closeEvent(self, event):
+        dialog=self.calibration_dialog
+        if dialog is not None and dialog.worker is not None:
+            if not getattr(self,'_calibration_close_pending',False):
+                self._calibration_close_pending=True
+                dialog.finished.connect(lambda:QTimer.singleShot(0,self.close))
+            dialog.close()
+            event.ignore()
+            return
         controller=getattr(self,'update_controller',None)
         if controller is not None and not controller.shutdown():
             self._close_pending=True

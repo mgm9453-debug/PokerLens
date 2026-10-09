@@ -23,10 +23,27 @@ SEAT_REGIONS = {
     7: (775/1128, 511/799, 60/1128, 55/799),
 }
 
+# 六人桌沿用同一座位編號；左右中間兩席不存在，不拿頭像填補。
+SIX_SEAT_REGIONS = {
+    1:(.160,.595,.053,.075),
+    3:(.157,.233,.051,.073),
+    4:(.441,.134,.052,.073),
+    5:(.725,.233,.051,.073),
+    7:(.725,.595,.051,.075),
+}
+
 
 class PlayerDetector:
-    def __init__(self,green_only=False):
+    @property
+    def seat_layout(self):
+        return self._fixed_seat_layout or (6 if self._regions is SIX_SEAT_REGIONS else 8)
+
+    def __init__(self,green_only=False,regions=None,seat_layout=None,exact_seats=()):
+        if seat_layout not in (None,6,8):raise ValueError('尚未支援此座位配置')
         self.green_only=green_only
+        self._fixed_seat_layout=seat_layout
+        self._regions=regions if regions is not None else (SIX_SEAT_REGIONS if seat_layout==6 else SEAT_REGIONS)
+        self._exact_seats=frozenset(exact_seats)
         from app_paths import resource_path
         path=resource_path('assets/card_back_emblem.png')
         self.emblem=cv2.imdecode(np.fromfile(path,dtype=np.uint8),cv2.IMREAD_GRAYSCALE) if path.is_file() else None
@@ -71,14 +88,32 @@ class PlayerDetector:
         if frame.max()<8 or float(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY).std())<2:
             return PlayerDetection((),False,'牌桌畫面為空白，等待新畫面')
         active = []
-        for seat, region in SEAT_REGIONS.items():
+        regions=self._regions
+        if self.green_only and self._fixed_seat_layout is None:
+            # 至少兩個完整牌背圖案支持，且比八人配置更多，才切換配置。
+            # 沒有牌或仍在動畫時不以頭像顏色猜測新配置。
+            def support(candidate):
+                count=0
+                for x,y,w,h in candidate.values():
+                    patch=frame[max(0,round((y-h*.12)*height)):round((y+h*1.18)*height),
+                        max(0,round((x-w*.12)*width)):round((x+w*1.18)*width)]
+                    count+=self.green_state(patch,height)=='active'
+                return count
+            six=support(SIX_SEAT_REGIONS)
+            eight=support(SEAT_REGIONS)
+            if six>=2 and six>eight:
+                self._regions=SIX_SEAT_REGIONS
+            elif eight>=2 and eight>six:
+                self._regions=SEAT_REGIONS
+            regions=self._regions
+        for seat, region in regions.items():
             x, y, w, h = region
             crop = frame[round(y*height):round((y+h)*height), round(x*width):round((x+w)*width)]
             if crop.size == 0:
                 return PlayerDetection((), False, f'座位 {seat} 畫面不完整')
             if self.green_only:
                 # 容許牌背動畫或縮放造成少量位移，不把整個頭像當牌背。
-                expanded=frame[max(0,round((y-h*.12)*height)):round((y+h*1.18)*height),
+                expanded=crop if seat in self._exact_seats else frame[max(0,round((y-h*.12)*height)):round((y+h*1.18)*height),
                     max(0,round((x-w*.12)*width)):round((x+w*1.18)*width)]
                 state=self.green_state(expanded,height)
                 if state=='active':

@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QL
 from .hand_picture import hand_picture
 from .theme import COLORS, card_style
 from .reference_style import ReferenceLabel
+from poker.pot_odds import call_ev_near_boundary
 
 
 class SummaryScrollArea(QScrollArea):
@@ -164,7 +165,7 @@ class AnalysisPanel(QWidget):
             self.action_label.setFixedHeight(round(74*scale))
             self.probabilities.setFixedHeight(round(92*scale))
             self.issue_label.setFixedHeight(round(72*scale))
-            self.sizing_label.setFixedHeight(round(44*scale))
+            self.sizing_label.setFixedHeight(round(58*scale))
             self.layout().setSpacing(round(8*scale))
             self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
@@ -217,16 +218,21 @@ class AnalysisPanel(QWidget):
         if result.get('live'):
             self.summary.setStyleSheet('font-size: 19px; padding: 16px; color: #203b50; background: #eff6f3; border-radius: 12px;')
             call = result.get('call_amount', 0)
+            ev=result.get('ev')
+            pot=result.get('pot')
+            borderline=call_ev_near_boundary(ev,pot or 0,call,result.get('simulation_count',0))
             win = result.get('equity_details', {}).get('win_probability', 0)
             if call == 0:
                 reference = '目前較適合：先過牌。\n現在不用補錢。'
+            elif borderline:
+                reference=f'需補 {call:,.0f}；估算接近門檻，暫不判定跟注或棄牌。'
             elif result.get('ev', 0) > 0:
                 reference = f'目前較適合：跟注 {call:,.0f}。\n照目前估算，這次跟注划得來。'
             else:
                 reference = f'目前較適合：先棄牌。\n要再補 {call:,.0f}，照目前估算不划算。'
             if result.get('range_assumed'):
                 reference= ('現在不用補錢，可以過牌。' if call==0 else
-                    f'只看目前跟注成本：補 {call:,.0f}，估算'+('划算。' if result.get('ev',0)>0 else '不划算。'))
+                    f'只看目前跟注成本：補 {call:,.0f}，估算'+('接近門檻，暫不判定。' if borderline else '划算。' if result.get('ev',0)>0 else '不划算。'))
                 reference+='\n對手手牌範圍尚未從行動確認，不能只靠這個估算決定棄牌。'
             guide=result.get('starting_hand',{})
             if guide:
@@ -241,11 +247,11 @@ class AnalysisPanel(QWidget):
             precision = '先給你大概結果，正在算得更準。' if result.get('simulation_count',0)<result.get('target_simulations',50000) else '已完成這輪估算。'
             stage = result.get('street', '')
             threat_note = '這是最後發完牌的模擬結果。' if preflop else '只看桌上已經開出的牌。'
-            action='過牌' if call==0 else f'跟注 {call:,.0f}（成本估算）' if result.get('ev',0)>0 else f'暫不跟注（需補 {call:,.0f}）'
-            ev=result.get('ev')
-            pot=result.get('pot')
+            action='過牌' if call==0 else '等待確認｜估算接近門檻' if borderline else f'跟注 {call:,.0f}（成本估算）' if result.get('ev',0)>0 else f'暫不跟注（需補 {call:,.0f}）'
             ratio=f'｜目前底池 {call/pot:.0%}' if pot and pot>0 else '｜底池待確認'
-            if call>0 and ev is not None and ev>0:
+            if call>0 and borderline:
+                sizing=f'需補 {call:,.0f}{ratio}｜估算接近門檻，暫不建議金額。'
+            elif call>0 and ev is not None and ev>0:
                 sizing=f'跟注參考：補 {call:,.0f}{ratio}。依目前對手範圍估算。'
             elif call>0:
                 sizing=f'需補 {call:,.0f}{ratio}。加注建議：位置與加注歷史待確認。'
@@ -254,7 +260,7 @@ class AnalysisPanel(QWidget):
             self.sizing_label.setText(sizing)
             if call==0:
                 self.set_action('過牌｜不用補錢','#1765aa')
-            elif ev is None or abs(ev)<1:
+            elif borderline:
                 self.set_action('等待確認｜估算接近邊界','#9a6500')
             elif ev>0:
                 self.set_action(f'依估算建議跟注 {call:,.0f}' if result.get('range_assumed') else f'入場：跟注 {call:,.0f}','#087d55')
@@ -265,7 +271,7 @@ class AnalysisPanel(QWidget):
             self.action_label.setToolTip('依目前辨識資料與假設對手範圍的跟注期望值；未納入後續下注、行動位置及完整獎金結構。')
             # 只使用現有跟注成本模型，不把起手牌圖顏色當作期望值。
             entry=('可免費看牌' if call==0 else '待確認' if ev is None else
-                '邊界，先確認' if abs(ev)<1 else '可考慮入場' if ev>0 else '暫不投入')
+                '邊界，先確認' if borderline else '可考慮入場' if ev>0 else '暫不投入')
             ev_text='待確認' if ev is None else f'{ev:+,.0f}'
             if call==0:
                 ev_text='無需跟注'
@@ -293,9 +299,9 @@ class AnalysisPanel(QWidget):
             chart=guide.get('entry_chart',{}) if result.get('street')=='翻牌前' else {}
             if chart:
                 cost=('不用補錢；加注條件待確認' if call==0 else
-                    '跟注估算待確認' if ev is None or abs(ev)<1 else
+                    '跟注估算待確認' if borderline else
                     f'依估算建議跟注 {call:,.0f}' if ev>0 else f'依估算建議棄牌｜需跟注 {call:,.0f}')
-                color='#1765aa' if call==0 else '#9a6500' if ev is None or abs(ev)<1 else '#087d55' if ev>0 else '#c42b36'
+                color='#1765aa' if call==0 else '#9a6500' if borderline else '#087d55' if ev>0 else '#c42b36'
                 self.set_action('過牌｜不用補錢' if call==0 else cost,color)
                 self.summary.setText(f'使用者牌表：{chart["color"]}｜{chart["rule"]}\n行動參考：{cost}｜跟注期望值 {ev_text}{assumption}\n位置與前面加注待確認；{raise_text}')
             elif self.dark_theme:
@@ -320,7 +326,7 @@ class AnalysisPanel(QWidget):
             needed=result.get('required_equity',result.get('pot_odds',0))
             if call==0:
                 self.set_action('對手全下｜目前不用補錢','#1765aa')
-            elif ev is None or abs(ev)<1:
+            elif borderline:
                 self.set_action('對手全下｜估算接近邊界，暫不判定','#9a6500')
             elif ev>0:
                 self.set_action(f'對手全下｜依估算建議跟注 {call:,.0f}','#087d55')
@@ -336,6 +342,9 @@ class AnalysisPanel(QWidget):
             self.sizing_label.setText('下注金額：資料未確認，暫不提供')
             self.summary.setText(f'目前牌型：{result.get("hand_strength","")}｜對手 {result.get("opponents",0)} 人\n依假設對手範圍估算勝率，金額確認後再分析跟注成本。')
             self.extra.setText(f'快速估算 {result.get("simulation_count",0):,} 次；對手範圍是假設。未使用未知金額計算期望值。')
+        if result.get('live') and not result.get('equity_only') and 'hero_turn' in result and result['hero_turn'] is not True:
+            self.set_action('等待對手行動' if result['hero_turn'] is False else '確認自身回合｜暫停行動建議','#9a6500')
+            self.sizing_label.setText('下注建議：等待輪到自己；勝率持續更新')
         self.threat_pictures.setVisible('threats_details' in result)
         examples=result.get('threats_details',{}).get('visual_examples',[])
         if examples:
@@ -407,8 +416,8 @@ class AnalysisPanel(QWidget):
             self.win_label.setStyleSheet(card_style(COLORS['win'] if options.get('win_color','#087d55') in ('#087d55','#43dfb9') else options['win_color'],font,True,True))
             self.tie_label.setStyleSheet(card_style(accent(options.get('tie_color','#7045b4')),font,True))
             self.summary.setStyleSheet(card_style(COLORS['text'],max(13,round(options.get('text_font',20)*self._view_scale*.8))))
-            self.sizing_label.setStyleSheet(card_style(COLORS['text'],max(13,round(16*self._view_scale))))
-            self.issue_label.setStyleSheet(card_style(COLORS['text'],max(13,round(15*self._view_scale))))
+            self.sizing_label.setStyleSheet(card_style(COLORS['text'],max(13,round(16*self._view_scale))).replace('padding:14px','padding:7px 12px'))
+            self.issue_label.setStyleSheet(card_style(COLORS['text'],max(13,round(15*self._view_scale))).replace('padding:14px','padding:7px 12px'))
 
         role=self.action_label.property('role_color')
         default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}.get(role,'#9a6500')
@@ -434,8 +443,10 @@ class AnalysisPanel(QWidget):
 
     def show_issue(self,message):
         problem=message.split('\n')[0].removeprefix('資料不確定，請確認：')
-        if '等待牌桌' in message or '找不到' in message:
-            solution='開啟牌桌，再按「重新找牌桌」並選擇要追蹤的桌。'
+        if '校準' in message or '辨識位置設定' in message:
+            solution='到「調整設定 → 辨識位置」重新框選，驗證後鎖定。'
+        elif '等待牌桌' in message or '找不到' in message:
+            solution='開啟牌桌；需要指定牌桌時，到「調整設定 → 辨識位置」選擇。'
         elif '最小化' in message:
             solution='還原牌桌視窗，程式會自動重新讀取。'
         elif '休息' in message or '沒有可見底牌' in message or '尚未發牌' in message:
@@ -449,7 +460,7 @@ class AnalysisPanel(QWidget):
         elif '底牌' in message or '牌面' in message:
             solution='等待發牌動畫結束；若仍未確認，放大牌桌並檢查是否有遊戲內視窗遮住牌。'
         else:
-            solution='確認牌桌仍開啟，再按「重新找牌桌」並選擇正確牌桌。'
+            solution='確認牌桌仍開啟；持續讀不到時，到「調整設定 → 辨識位置」重新校準。'
         self.issue_label.setText(f'目前問題：{problem}\n解決方式：{solution}')
         self.issue_label.show()
         if self.fixed_layout:
@@ -470,9 +481,7 @@ class AnalysisPanel(QWidget):
         if not self.fixed_layout:
             self.threat_matrix.render([],[])
         else:
-            self.threat_matrix.setEnabled(False)
-            self.threat_matrix.caption.setText('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
-            self.threat_matrix.table.setToolTip('牌面尚未確認；矩陣暫不可使用。')
+            self.threat_matrix.invalidate()
         self.hero_picture.clear()
         self.board_picture.clear()
         self.sizing_label.setText('下注建議：資料未確認，暫停建議金額')

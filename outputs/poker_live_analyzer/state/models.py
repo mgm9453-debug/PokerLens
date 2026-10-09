@@ -10,6 +10,7 @@ class PlayerState:
     position: str = ''
     stack: float = 0.0
     stack_known: bool = True
+    bet_known: bool = True
     bet: float = 0.0
     current_bet: float | None = None
     total_invested: float | None = None
@@ -23,7 +24,7 @@ class PlayerState:
         if self.current_bet is not None: self.bet=self.current_bet
         self.current_bet=self.bet
         if self.total_invested is None: self.total_invested=self.current_bet
-        if any(not isinstance(v,bool) for v in (self.active,self.folded,self.all_in,self.stack_known)): raise ValueError('玩家狀態控制須為布林值')
+        if any(not isinstance(v,bool) for v in (self.active,self.folded,self.all_in,self.stack_known,self.bet_known)): raise ValueError('玩家狀態控制須為布林值')
         if isinstance(self.seat,bool) or not isinstance(self.seat,int) or self.seat<0: raise ValueError('座位須為非負整數')
         nonnegative(self.stack,'籌碼'); nonnegative(self.bet,'下注')
         nonnegative(self.total_invested,'累計投入')
@@ -65,12 +66,16 @@ class PokerTableState:
     confidence: dict[str,float] = field(default_factory=dict)
     ranges: dict[str,str] = field(default_factory=dict)
     fold_probability: float = 0.0
+    hero_turn: bool | None = None
+    decision_context: dict = field(default_factory=dict)
     def __post_init__(self):
         if self.community_cards is not None: self.board=list(self.community_cards)
         self.community_cards=list(self.board)
         if self.dealer_position is not None: self.dealer_seat=self.dealer_position
         self.dealer_position=self.dealer_seat
         if any(not isinstance(v,bool) for v in (self.showdown,self.hand_complete)): raise ValueError('攤牌及完成控制須為布林值')
+        if self.hero_turn is not None and type(self.hero_turn) is not bool:raise ValueError('自身回合須為布林值或未知')
+        if not isinstance(self.decision_context,dict):raise ValueError('即時決策資料須為字典')
         self.players=[PlayerState.from_dict(p) if isinstance(p,dict) else p for p in self.players]
         if len(self.hero_cards) not in (0,2) or len(self.board) not in (0,3,4,5): raise ValueError('底牌或公共牌張數錯誤')
         seats=[p.seat for p in self.players]

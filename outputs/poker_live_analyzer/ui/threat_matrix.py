@@ -103,9 +103,17 @@ class ThreatMatrix(QWidget):
         luminance=sum(value*weight for value,weight in zip(channels,(.2126,.7152,.0722)))
         return '#000000' if luminance>.179 else '#ffffff'
 
+    def invalidate(self):
+        """保留全部牌型與位置，清除上次比較標色及提示。"""
+        self.render([],[])
+        self.setEnabled(False)
+        self.table.setToolTip('牌面尚未確認；矩陣尚未比較。')
+
     def apply_colors(self,background,winner):
         if (background,winner)==(self.background,self.winner):return
+        enabled=self.isEnabled()
         self.background,self.winner=background,winner
         key=self.last_key or ((),())
         self.last_key=None
         self.render(*key)
+        self.setEnabled(enabled)

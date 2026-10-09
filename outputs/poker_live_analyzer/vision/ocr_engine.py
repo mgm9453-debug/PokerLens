@@ -101,7 +101,6 @@ class NativeOcrEngine:
     async def read_pot_amount(self,image):
         """先讀原圖，再隔離常見底池文字筆畫；不把桌布色當成底池。"""
         value=await self.read_amount(image)
-        if value is not None: return value
         if image is None or not image.size: return None
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
         texts=[]
@@ -113,7 +112,8 @@ class NativeOcrEngine:
             texts.append(text.text.strip(' :：'))
             self.bb_display=self.bb_display or bool(re.search(r'BB\b',text.text,re.I))
         # 有效候選必須一致；不同處理得到不同金額時不採用。
-        return unique_amount(texts,self.big_blind)
+        isolated=unique_amount(texts,self.big_blind)
+        return isolated if isolated is not None else value
 
     async def read_amount_matching(self,image,expected):
         """須由至少兩種文字處理確認差額，不把猜測的金額塞回辨識結果。"""

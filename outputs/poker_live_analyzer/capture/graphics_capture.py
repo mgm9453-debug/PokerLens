@@ -2,7 +2,22 @@
 from threading import Condition
 from time import monotonic
 import numpy as np
-from .window_capture import _validated_rect
+from .window_capture import _validated_rect, _physical_coordinates
+
+
+def _visible_rect(handle):
+    import ctypes
+    from ctypes import wintypes
+    try:
+        with _physical_coordinates():
+            rect=wintypes.RECT()
+            result=ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                wintypes.HWND(handle),9,ctypes.byref(rect),ctypes.sizeof(rect))
+            if result==0:
+                return rect.left,rect.top,rect.right,rect.bottom
+    except (OSError,RuntimeError):
+        pass
+    return None
 
 
 class GraphicsWindowCapture:
@@ -93,8 +108,24 @@ class GraphicsWindowCapture:
             image=self._latest.copy()
         if self._control.is_finished(): raise RuntimeError('視窗內容擷取已停止')
         if image.shape[:2]!=(rect[3]-rect[1],rect[2]-rect[0]):
-            raise RuntimeError('視窗尺寸正在變動，等待新尺寸影格')
+            visible=_visible_rect(self.handle)
+            if (visible is None or image.shape[:2]!=(visible[3]-visible[1],visible[2]-visible[0])
+                    or _validated_rect(self.handle,())!=rect
+                    or not (rect[0]<=visible[0]<visible[2]<=rect[2]
+                            and rect[1]<=visible[1]<visible[3]<=rect[3])):
+                raise RuntimeError('視窗尺寸正在變動，等待新尺寸影格')
+            # 補回系統隱形邊框，維持既有辨識區域的座標比例，不拉伸牌面。
+            padded=np.zeros((rect[3]-rect[1],rect[2]-rect[0],3),dtype=np.uint8)
+            x,y=visible[0]-rect[0],visible[1]-rect[1]
+            padded[y:y+image.shape[0],x:x+image.shape[1]]=image
+            image=padded
         return image
+
+    def read_sample(self):
+        """原子讀取影像與來源接收時間；反覆讀取不冒充新的影格。"""
+        with self._condition:
+            image=self.read()
+            return image,self._received
 
     def close(self):
         with self._condition:

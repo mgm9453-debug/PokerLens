@@ -11,6 +11,30 @@ def sample():
     return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
 
 
+def test_six_seat_layout_finds_five_green_backs():
+    from vision.player_detector import PlayerDetector
+    frame=cv2.imread(str(Path(__file__).parent/'fixtures/six_green_backs_anonymous.png'))
+    for width in (1146,846,564):
+        image=cv2.resize(frame,(width,round(frame.shape[0]*width/frame.shape[1])))
+        result=PlayerDetector(green_only=True).detect(image)
+        assert result.reliable,result.reason
+        assert result.active_seats==(1,3,4,5,7)
+
+
+def test_six_seat_layout_keeps_position_after_four_players_fold():
+    from vision.player_detector import PlayerDetector,SIX_SEAT_REGIONS
+    frame=cv2.imread(str(Path(__file__).parent/'fixtures/six_green_backs_anonymous.png'))
+    detector=PlayerDetector(green_only=True)
+    assert detector.detect(frame).reliable
+    for seat,(x,y,w,h) in SIX_SEAT_REGIONS.items():
+        if seat==3:continue
+        height,width=frame.shape[:2]
+        frame[round(y*height):round((y+h)*height),round(x*width):round((x+w)*width)]=35
+    result=detector.detect(frame)
+    assert result.reliable,result.reason
+    assert result.active_seats==(3,)
+
+
 def test_six_opponents_and_folded_lower_left():
     from vision.player_detector import PlayerDetector
     result = PlayerDetector().detect(sample())

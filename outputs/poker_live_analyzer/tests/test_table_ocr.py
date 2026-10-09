@@ -162,3 +162,52 @@ def test_break_overlay_is_waiting_not_a_hand():
     assert result.paused
     assert not result.reliable
     assert '休息' in result.reason
+def test_six_seat_amounts_and_empty_bets_share_the_layout():
+    image=cv2.imread(str(Path(__file__).parent/'fixtures/six_amounts_anonymous.png'))
+    async def check():
+        detector=TableDetector()
+        detector.set_seat_layout(6)
+        for _ in range(3):result=await detector.detect(image)
+        assert result.reliable,result.reason
+        assert result.seats==(0,1,3,4,5,7)
+        assert result.pot==13600
+        assert result.hero_stack==136475
+        assert result.call_amount==0
+        assert result.seat_bets=={0:4000,1:0,3:4000,4:0,5:0,7:2000}
+        detector.set_seat_layout(8)
+        assert set(detector.bet_rois)==set(range(8))
+        assert detector.previous=={}
+    asyncio.run(check())
+
+
+def test_wood_texture_does_not_hide_empty_bets_or_pot_prefix():
+    frame=cv2.imread(str(Path(__file__).parent/'fixtures/wood_amounts_anonymous.png'))
+    async def check():
+        detector=TableDetector()
+        for _ in range(3):result=await detector.detect(frame)
+        assert result.pot==127366
+        assert result.seat_bets=={0:0,1:0,2:0,3:0,4:0,5:60958,6:3000,7:60958}
+        assert result.call_amount==60958
+        assert result.reliable,result.reason
+    asyncio.run(check())
+
+
+def test_textured_empty_bet_rejects_digits_chips_and_gray_occlusion():
+    from vision.table_detector import textured_empty_bet
+    background=np.full((30,70,3),(60,110,160),np.uint8)
+    assert textured_empty_bet(background,background)
+    digit=background.copy()
+    cv2.putText(digit,'1',(20,24),cv2.FONT_HERSHEY_SIMPLEX,.7,(220,220,220),1)
+    assert not textured_empty_bet(digit,background)
+    assert not textured_empty_bet(background,digit)
+    assert not textured_empty_bet(np.full_like(background,40),background)
+
+
+def test_sync_dealing_banner_is_separate_from_missing_amounts():
+    label=cv2.imread(str(Path(__file__).parents[1]/'assets/sync_dealing_label.png'))
+    frame=np.full((805,1152,3),35,np.uint8)
+    frame[417:417+label.shape[0],494:494+label.shape[1]]=label
+    detector=TableDetector()
+    assert detector.sync_dealing(frame)
+    assert detector.sync_dealing(cv2.resize(frame,(576,403)))
+    assert not detector.sync_dealing(np.full_like(frame,35))

@@ -10,6 +10,16 @@ def inputs():
             seat_bets={0:100,1:0,2:285,3:0,4:0,5:0,6:0,7:50}, seat_stacks={}))
 
 
+def test_six_seat_state_does_not_require_nonexistent_seats():
+    cards,players,amounts=inputs()
+    players.active_seats=(3,7)
+    amounts.seats=(0,1,3,4,5,7)
+    amounts.seat_bets={0:100,1:0,3:285,4:0,5:0,7:50}
+    state=LiveStateAssembler().build(cards,players,amounts)
+    assert {p['seat'] for p in state['players']}==set(amounts.seats)
+    assert state['call_amount']==185
+
+
 def test_snapshot_uses_detected_players_and_unknown_effective_stack():
     assembler = LiveStateAssembler()
     cards, players, amounts = inputs()

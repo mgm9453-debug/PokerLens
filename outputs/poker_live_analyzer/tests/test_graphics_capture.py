@@ -8,6 +8,7 @@ def backend(monkeypatch):
     from capture import graphics_capture as module
     checks=[]
     monkeypatch.setattr(module,'_validated_rect',lambda handle,regions:(checks.append(regions) or (10,20,16,24)))
+    monkeypatch.setattr(module,'_visible_rect',lambda handle:None)
     class Native:
         def __init__(self,**kwargs): self.options=kwargs;self.events={};self.stopped=False
         def event(self,callback): self.events[callback.__name__]=callback;return callback
@@ -55,6 +56,17 @@ def test_resize_waits_for_new_matching_frame(backend,monkeypatch):
     with pytest.raises(RuntimeError,match='尺寸'): capture.read()
     capture.close()
 
+def test_visible_frame_is_padded_to_outer_window(backend,monkeypatch):
+    module,capture,_=backend
+    monkeypatch.setattr(module,'_validated_rect',lambda *args:(9,20,17,25))
+    monkeypatch.setattr(module,'_visible_rect',lambda handle:(10,20,16,24))
+    capture._native.emit(pixels(),1)
+    result=capture.read()
+    assert result.shape==(5,8,3)
+    assert result[0,1].tolist()==[20,70,140]
+    assert not result[:,0].any()
+    capture.close()
+
 def test_native_close_invalidates_latest_frame(backend):
     module,capture,_=backend
     capture._native.emit(pixels(),1)
@@ -68,4 +80,21 @@ def test_late_callback_from_previous_session_is_ignored(backend):
     capture.close();capture.open()
     callback(SimpleNamespace(frame_buffer=pixels(),timespan=100),None)
     with pytest.raises(RuntimeError,match='等待'): capture.read()
+    capture.close()
+
+
+def test_atomic_sample_carries_source_time_and_does_not_refresh_on_read(backend,monkeypatch):
+    module,capture,_=backend
+    now=[100.0]
+    monkeypatch.setattr(module,'monotonic',lambda:now[0])
+    capture._native.emit(pixels(),1)
+    image,received=capture.read_sample()
+    assert received==100.0
+    now[0]=100.5
+    again,received_again=capture.read_sample()
+    assert received_again==received
+    assert np.array_equal(image,again)
+    capture._native.emit(pixels(),2)
+    _,received_new=capture.read_sample()
+    assert received_new==100.5
     capture.close()
