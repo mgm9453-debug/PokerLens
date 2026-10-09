@@ -46,7 +46,7 @@ class ThreatMatrix(QWidget):
         self.table.setShowGrid(False)
         self.table.setHorizontalHeaderLabels(list(RANKS))
         self.table.setVerticalHeaderLabels(list(RANKS))
-        # 固定字體與格子尺寸，視窗縮小時捲動而不壓縮牌型。
+        # 保留可讀的最小格子尺寸，全部牌型一起縮放，不用捲動閱讀。
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setMinimumSectionSize(32)
         self.table.horizontalHeader().setDefaultSectionSize(51)
@@ -55,11 +55,11 @@ class ThreatMatrix(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.horizontalHeader().setFixedHeight(30)
         self.table.verticalHeader().setFixedWidth(28)
-        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.table.setMinimumHeight(320)
+        self.table.setMinimumSize(13*32+28+4,13*22+30+4)
         self.table.setStyleSheet('QTableWidget {background:#08090A;color:#142433;gridline-color:#348A69;font-size:14px;font-weight:500;border:1px solid #9B7133;} QHeaderView::section {background:#EFC67A;color:#17120A;font-weight:600;padding:1px;border:1px solid #08090A;border-radius:4px;} QTableWidget::item {padding:0px;}')
         layout.addWidget(self.table,1)
         self.note=QLabel('上三角：同花；下三角：不同花；對角線：對子。比較所有合法底牌，不代表對手實際持牌或機率。')
