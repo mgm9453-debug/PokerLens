@@ -9,6 +9,11 @@ def test_matrix_remains_fully_visible_at_allowed_sizes(tmp_path):
     app=QApplication.instance() or QApplication([])
     window=MainWindow(data_dir=tmp_path,auto_demo=False)
     window.set_live_layout()
+    window.analysis.set_action('依估算建議跟注 1,500','#087d55')
+    window.analysis.win_label.setText('勝率 34.4%')
+    window.analysis.tie_label.setText('平手 3.6%')
+    window.analysis.sizing_label.setText('目前下注：跟注 1,500｜目前底池 21%｜依設定的對手範圍估算')
+    window.analysis.remember_advice()
     window.analysis.invalidate('等待牌桌；開啟牌局後會自動追蹤。')
     window.show()
     try:
@@ -20,6 +25,8 @@ def test_matrix_remains_fully_visible_at_allowed_sizes(tmp_path):
             assert table.horizontalScrollBar().maximum()==0
             assert table.verticalScrollBar().maximum()==0
             assert bottom.y()<=window.main_scroll.viewport().height()
+            previous=window.analysis.previous_label
+            assert previous.height()>=previous.heightForWidth(previous.width())
             assert table.rowCount()==table.columnCount()==13
             assert all(table.item(row,column) is not None for row in range(13) for column in range(13))
         window.resize(300,300)

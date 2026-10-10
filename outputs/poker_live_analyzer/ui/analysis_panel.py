@@ -1,4 +1,6 @@
-from PySide6.QtCore import Qt, QEvent, QRect
+from PySide6.QtCore import Qt, QEvent, QRect, QTimer
+from datetime import datetime, timezone, timedelta
+from html import escape
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTableWidget, QTableWidgetItem, QCheckBox, QScrollArea,QBoxLayout
 from .hand_picture import hand_picture
 from .theme import COLORS, card_style
@@ -136,6 +138,71 @@ class AnalysisPanel(QWidget):
         layout.addWidget(footer)
         self.footer=footer
         self.heading=heading
+        self.previous_label=QLabel('上一筆結果｜非目前結果<br><br>尚無已完成的建議')
+        self.previous_label.setTextFormat(Qt.RichText)
+        self.previous_label.setWordWrap(True)
+        self.previous_label.setStyleSheet('color:#FFFFFF;font-size:14px;padding:10px;background:#15120F;border:1px solid #9B7133;border-radius:12px;')
+        self.previous_label.installEventFilter(self)
+        layout.insertWidget(layout.indexOf(self.summary_scroll),self.previous_label)
+        self._last_advice=None
+        self.reminder_timer=QTimer(self)
+        self.reminder_timer.setSingleShot(True)
+        self.reminder_timer.timeout.connect(self._end_reminder)
+
+    def _end_reminder(self):
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        effect=self.action_label.graphicsEffect()
+        if isinstance(effect,QGraphicsDropShadowEffect):effect.setEnabled(False)
+
+    def remember_advice(self):
+        """僅保留顯示快照，絕不拿歷史值計算或執行目前決策。"""
+        signature=(self.action_label.text(),self.sizing_label.text())
+        previous=self._last_advice
+        if previous and previous['signature']!=signature:
+            self._show_previous(previous)
+        if previous is None or previous['signature']!=signature:
+            from PySide6.QtWidgets import QGraphicsDropShadowEffect
+            from PySide6.QtGui import QColor
+            effect=QGraphicsDropShadowEffect(self.action_label)
+            effect.setColor(QColor('#D8AE62'));effect.setOffset(0,0);effect.setBlurRadius(18)
+            self.action_label.setGraphicsEffect(effect)
+            self.reminder_timer.start(1200)
+        role=self.action_label.property('role_color')
+        color={'call_color':'#43dfb9','fold_color':'#f27680','check_color':'#8abaff'}.get(role,'#E8CA8A')
+        text=(f'<span style="font-size:13px">上一次｜{datetime.now(timezone(timedelta(hours=8))):%H:%M:%S}｜非目前結果</span><br>'
+              f'<span style="color:{color};font-size:20px;font-weight:600">{escape(signature[0])}</span><br>'
+              f'<span style="color:#43dfb9;font-size:18px">{escape(self.win_label.text())}</span>　'
+              f'<span style="color:#c49af5;font-size:18px">{escape(self.tie_label.text())}</span><br>'
+              f'<span style="font-size:13px">{escape(signature[1].replace("目前下注","當時下注").replace("目前底池","當時底池"))}</span>')
+        self._last_advice={'signature':signature,'text':text}
+
+    def _show_previous(self,snapshot):
+        self.previous_label.setText(snapshot['text'])
+        self._fit_previous()
+
+    def _fit_previous(self):
+        height=max(110,self.previous_label.heightForWidth(max(100,self.previous_label.width())))
+        if self.previous_label.height()!=height:self.previous_label.setFixedHeight(height)
+
+    def eventFilter(self,watched,event):
+        if watched is getattr(self,'previous_label',None) and event.type()==QEvent.Resize:
+            self._fit_previous()
+        return super().eventFilter(watched,event)
+
+    def unavailable_sizing(self,message):
+        if '底牌' in message or '尚未發牌' in message:return '目前下注：等待發牌，底牌尚未確認'
+        if '輪到' in message or '回合' in message:return '目前下注：尚未確認輪到自己'
+        fields=[label for words,label in ((('跟注','call'),'跟注金額'),(('底池',),'底池金額'),(('籌碼',),'籌碼'),(('下注額',),'各座下注')) if any(word in message for word in words)]
+        if fields:return '目前下注：尚未確認'+'、'.join(fields)
+        if '逾期' in message:return '目前下注：畫面資料已逾期，等待新資料'
+        if '背景計算' in message:return '目前下注：正在依新資料計算'
+        return '目前下注：'+message.split('\n')[0]
+
+    def begin_refresh(self,same_context=False):
+        if same_context:
+            self.issue_label.setText('資料狀態：背景更新中\n完成後直接替換目前結果。')
+        else:
+            self.invalidate('狀態已更新，背景計算中…')
 
     def enable_fixed_layout(self):
         self.fixed_layout=True
@@ -157,8 +224,14 @@ class AnalysisPanel(QWidget):
             self.summary_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         else:
             self.summary_scroll.setFixedHeight(70)
+        policy=self.summary_scroll.sizePolicy()
+        policy.setRetainSizeWhenHidden(False)
+        self.summary_scroll.setSizePolicy(policy)
+        self.summary_scroll.hide()
+        self._fit_previous()
 
     def resizeEvent(self,event):
+        if hasattr(self,'previous_label'):self._fit_previous()
         if self.dark_theme and self.fixed_layout:
             scale=max(.75,min(1.3,self.width()/700,self.window().height()/960))
             self._view_scale=scale
@@ -166,7 +239,7 @@ class AnalysisPanel(QWidget):
             self.probabilities.setFixedHeight(round(92*scale))
             self.issue_label.setFixedHeight(round(72*scale))
             self.sizing_label.setFixedHeight(round(58*scale))
-            self.layout().setSpacing(round(8*scale))
+            self.layout().setSpacing(round(5*scale))
             self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
         self.summary_layout.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
@@ -184,7 +257,7 @@ class AnalysisPanel(QWidget):
         self.issue_label.setVisible(self.fixed_layout)
         if self.fixed_layout:self.issue_label.setText('資料狀態：已確認\n持續追蹤牌桌，資料變動時自動更新。')
         self.sizing_label.show()
-        self.summary_scroll.show()
+        self.summary_scroll.setVisible(not self.fixed_layout)
         hero=result.get('hero_cards',[])
         board=result.get('community_cards',[])
         self.card_strip.setVisible(bool(hero))
@@ -250,13 +323,13 @@ class AnalysisPanel(QWidget):
             action='過牌' if call==0 else '等待確認｜估算接近門檻' if borderline else f'跟注 {call:,.0f}（成本估算）' if result.get('ev',0)>0 else f'暫不跟注（需補 {call:,.0f}）'
             ratio=f'｜目前底池 {call/pot:.0%}' if pot and pot>0 else '｜底池待確認'
             if call>0 and borderline:
-                sizing=f'需補 {call:,.0f}{ratio}｜估算接近門檻，暫不建議金額。'
+                sizing=f'目前下注：需補 {call:,.0f}{ratio}｜估算接近門檻，暫不判定'
             elif call>0 and ev is not None and ev>0:
-                sizing=f'跟注參考：補 {call:,.0f}{ratio}。依目前對手範圍估算。'
+                sizing=f'目前下注：跟注 {call:,.0f}{ratio}｜依設定的對手範圍估算'
             elif call>0:
-                sizing=f'需補 {call:,.0f}{ratio}。加注建議：位置與加注歷史待確認。'
+                sizing=f'目前下注：需補 {call:,.0f}{ratio}｜加注尺寸尚未確認'
             else:
-                sizing='下注建議：位置、前面行動與合法尺寸待確認；目前不需補錢。'
+                sizing='目前下注：可過牌｜加注尺寸待確認（位置、前面行動及合法尺寸）'
             self.sizing_label.setText(sizing)
             if call==0:
                 self.set_action('過牌｜不用補錢','#1765aa')
@@ -332,19 +405,19 @@ class AnalysisPanel(QWidget):
                 self.set_action(f'對手全下｜依估算建議跟注 {call:,.0f}','#087d55')
             else:
                 self.set_action(f'對手全下｜依估算建議棄牌','#c42b36')
-            self.sizing_label.setText(f'需補 {call:,.0f}｜跟注門檻 {needed:.1%}｜依設定的對手範圍估算')
+            self.sizing_label.setText(f'目前下注：需補 {call:,.0f}｜跟注門檻 {needed:.1%}｜依設定的對手範圍估算')
             self.summary.setText('行動參考：依目前跟注成本估算；尚未計入後續下注、邊池及獎金結構。')
         self.mode_notice.clear()
         self.mode_notice.hide()
         if result.get('equity_only'):
             self.show_issue(self.last_issue_message or '下注金額尚未確認')
             self.set_action('勝率已估算｜等待資料確認','#9a6500')
-            self.sizing_label.setText('下注金額：資料未確認，暫不提供')
+            self.sizing_label.setText(self.unavailable_sizing(self.last_issue_message or '下注金額尚未確認'))
             self.summary.setText(f'目前牌型：{result.get("hand_strength","")}｜對手 {result.get("opponents",0)} 人\n依假設對手範圍估算勝率，金額確認後再分析跟注成本。')
             self.extra.setText(f'快速估算 {result.get("simulation_count",0):,} 次；對手範圍是假設。未使用未知金額計算期望值。')
         if result.get('live') and not result.get('equity_only') and 'hero_turn' in result and result['hero_turn'] is not True:
             self.set_action('等待對手行動' if result['hero_turn'] is False else '確認自身回合｜暫停行動建議','#9a6500')
-            self.sizing_label.setText('下注建議：等待輪到自己；勝率持續更新')
+            self.sizing_label.setText('目前下注：等待輪到自己；勝率持續更新')
         self.threat_pictures.setVisible('threats_details' in result)
         examples=result.get('threats_details',{}).get('visual_examples',[])
         if examples:
@@ -465,17 +538,21 @@ class AnalysisPanel(QWidget):
         self.issue_label.show()
         if self.fixed_layout:
             self.set_action('行動建議：等待底牌確認' if '底牌' in message else '行動建議：等待資料確認','#9a6500')
-            self.sizing_label.setText('下注建議：等待可靠金額')
+            self.sizing_label.setText(self.unavailable_sizing(message))
             self.summary.setText('分析說明：資料不確定，確認後自動更新。')
             self.action_label.show()
             self.sizing_label.show()
-            self.summary_scroll.show()
+            self.summary_scroll.hide()
         else:
             self.action_label.hide()
             self.sizing_label.hide()
             self.summary_scroll.hide()
 
     def invalidate(self, message):
+        if self._last_advice:
+            self._show_previous(self._last_advice)
+        self.reminder_timer.stop()
+        self._end_reminder()
         self.last_issue_message=message
         self.mode_notice.clear()
         if not self.fixed_layout:

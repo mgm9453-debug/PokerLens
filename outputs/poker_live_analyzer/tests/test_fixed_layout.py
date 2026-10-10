@@ -16,7 +16,7 @@ def test_waiting_does_not_move_matrix_or_keep_old_probabilities():
     assert '更新中' in panel.win_label.text()
     assert not panel.action_label.isHidden()
     assert not panel.sizing_label.isHidden()
-    assert not panel.summary_scroll.isHidden()
+    assert panel.summary_scroll.isHidden()
     assert '等待資料確認' in panel.action_label.text()
     assert 's＝同花' in panel.threat_matrix.caption.text()
     assert not panel.threat_matrix.isEnabled()

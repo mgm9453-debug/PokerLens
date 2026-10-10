@@ -17,7 +17,7 @@ class CalibrationValidation:
 
 
 def calibration_active(profile):
-    return profile is not None and profile.locked and profile.verified
+    return profile is not None and ((profile.locked and profile.verified) or profile.positions_locked)
 
 
 def _coordinates(region):
@@ -25,6 +25,8 @@ def _coordinates(region):
 
 
 def build_detectors(profile=None, require_locked=True, ocr=None):
+    if profile is not None and profile.position_signature and not profile.positions_locked:
+        raise ValueError('鎖定位置已變更，請重新確認位置')
     if profile is not None and profile.locked and not profile.verified:
         raise ValueError('鎖定的辨識位置已變更，請重新校準並驗證')
     if profile is None or (require_locked and not calibration_active(profile)):
@@ -105,6 +107,17 @@ async def _read_field(key, frame, roi, cards, players, money):
     return format(value, 'g') if value is not None else None
 
 
+def omit_inactive_seat_errors(readings, errors):
+    """已確認沒有持牌與下注的座位，其籌碼不影響當前牌局。"""
+    result=dict(errors)
+    for key in tuple(result):
+        if key.startswith('stack_'):
+            seat=key.split('_')[1]
+            if readings.get('back_'+seat)=='已確認無牌背' and readings.get('bet_'+seat)=='0':
+                result.pop(key)
+    return result
+
+
 async def validate_calibration(profile, frames, ocr=None):
     signature = profile.signature
     keys = tuple(profile.regions)
@@ -145,4 +158,7 @@ async def validate_calibration(profile, frames, ocr=None):
     if 'hero' in readings and 'board' in readings and readings['board'] != '翻前無公共牌':
         if set(readings['hero'].split()) & set(readings['board'].split()):
             errors['hero'] = errors['board'] = '底牌與公共牌出現重複牌面，請重新校準兩個區域'
+    # 必須連續三幀確認無持牌、无下注，不能把辨識失敗視為空位。
+    stable_readings={key:value for key,value in readings.items() if counts.get(key,0)>=3}
+    errors=omit_inactive_seat_errors(stable_readings,errors)
     return CalibrationValidation(not errors, readings, errors, signature)

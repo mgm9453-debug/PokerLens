@@ -35,7 +35,9 @@ class AnalysisResult:
     def to_dict(self): return asdict(self)
 
 class AnalysisEngine:
-    def __init__(self,iterations=100000,seed=42): self.iterations=iterations; self.seed=seed
+    def __init__(self,iterations=100000,seed=42,*,time_budget=None,cooperative=False):
+        self.iterations=iterations; self.seed=seed
+        self.time_budget=time_budget; self.cooperative=cooperative
     @staticmethod
     def equity_key(state,seed=42):
         return (seed, tuple(state.hero_cards), tuple(state.board), state.showdown,
@@ -58,7 +60,7 @@ class AnalysisEngine:
             guide['published_reference']=optional_reference(state.hero_cards,state.board,ranges)
         if cached_equity is not None and cached_equity[0] != self.equity_key(state,self.seed):
             raise ValueError('權益快取與目前牌面或對手範圍不一致')
-        equity=cached_equity[1] if cached_equity is not None else calculate_equity(state.hero_cards,state.board,ranges,self.iterations,self.seed,cancel)
+        equity=cached_equity[1] if cached_equity is not None else calculate_equity(state.hero_cards,state.board,ranges,self.iterations,self.seed,cancel,time_budget=self.time_budget,cooperative=self.cooperative)
         if equity.cancelled: raise InterruptedError('分析已取消，不產生勝率或期望值結果')
         outs=calculate_outs(state.hero_cards,state.board)
         needed=required_equity(state.pot,state.call_amount)

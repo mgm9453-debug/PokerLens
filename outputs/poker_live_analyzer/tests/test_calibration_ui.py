@@ -164,7 +164,7 @@ def test_validation_reads_fresh_frames_and_saves_only_overrides(app, tmp_path):
     assert result.profile.verified
     assert result.save_button.isEnabled()
     assert len(sources.calls) == 4
-    assert '讀到 123' in result.results.item(0, 1).text()
+    assert result.results.rowCount()==0
     result.save_button.click()
     profile = CalibrationStore(tmp_path / 'recognition.json').load()
     assert profile.locked
@@ -210,7 +210,7 @@ def test_edit_while_validation_runs_discards_older_success(app, tmp_path):
     wait_until(lambda: result.worker is None)
     assert not result.profile.verified
     assert not result.save_button.isEnabled()
-    assert '讀到 123' not in result.results.item(0, 1).text()
+    assert result.results.rowCount()==0
     result.close()
 
 

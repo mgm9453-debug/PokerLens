@@ -21,7 +21,7 @@ class EquityPreviewWorker(QThread):
             hero=self.observation['hero']
             board=self.observation['board']
             equity=calculate_equity(hero,board,[self.range_name]*len(self.observation['active_seats']),
-                iterations=2000,cancel=self.cancel.is_set)
+                iterations=2000,cancel=self.cancel.is_set,time_budget=.25,cooperative=True)
             if equity.cancelled or self.cancel.is_set(): return
             self.succeeded.emit(self.key,{'equity_only':True,'live':True,'hero_cards':hero,
                 'community_cards':board,'equity':equity.hero_equity,'opponent_equity':equity.opponents_equity,

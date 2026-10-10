@@ -1,4 +1,5 @@
 import random
+from time import perf_counter, sleep
 from dataclasses import dataclass, asdict, field
 from treys import Card
 from .cards import DECK, validate_cards
@@ -18,7 +19,7 @@ class EquityResult:
     terminal_beating_counts: dict[str,int] = field(default_factory=dict)
     def to_dict(self): return asdict(self)
 
-def calculate_equity(hero, board, opponent_ranges, iterations=100000, seed=42, cancel=None):
+def calculate_equity(hero, board, opponent_ranges, iterations=100000, seed=42, cancel=None, *, time_budget=None, cooperative=False):
     known = validate_cards([*hero,*board])
     if len(hero)!=2 or len(board) not in (0,3,4,5): raise ValueError('底牌或公共牌張數錯誤')
     if iterations not in ITERATIONS: raise ValueError('模擬次數須為兩千、一萬、五萬、十萬、五十萬或一百萬')
@@ -36,10 +37,17 @@ def calculate_equity(hero, board, opponent_ranges, iterations=100000, seed=42, c
     hero_share=ties=wins=completed=0
     cancelled=False
     terminal_counts={}
+    started=perf_counter()
     for i in range(iterations):
         if i % 64 == 0 and cancel and cancel():
             cancelled=True
             break
+        if i%64==0:
+            # 首輪保留至少 128 個完整樣本，預算用完就先交付估算。
+            if time_budget is not None and completed>=128 and perf_counter()-started>=time_budget:
+                break
+            # 即時精算讓出執行時間，避免文字辨識與介面被大量樣本拖慢。
+            if cooperative and i:sleep(.001)
         # 聯合拒絕抽樣，使每位對手各自範圍的合法聯合組合均勻。
         for attempt in range(100000):
             hands=[rng.choice(r) for r in ranges]

@@ -37,6 +37,7 @@ class VisionWorker(QThread):
         if profile is None:
             return {'active': False}
         return {'active': calibration_active(profile), 'locked': profile.locked,
+            'positions_locked':profile.positions_locked,
             'verified': profile.verified, 'signature': profile.signature,
             'reference_size': list(profile.reference_size), 'seat_layout': profile.seat_layout,
             'regions': {name: asdict(region) for name, region in profile.regions.items()},

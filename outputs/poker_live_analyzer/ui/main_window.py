@@ -57,16 +57,18 @@ class AnalysisWorker(QThread):
     succeeded = Signal(int, object)
     failed = Signal(int, str)
 
-    def __init__(self, version, state, iterations, seed, parent=None, cached_equity=None):
+    def __init__(self, version, state, iterations, seed, parent=None, cached_equity=None, *, time_budget=None, cooperative=False):
         super().__init__(parent)
         self.version, self.state = version, state
         self.iterations, self.seed = iterations, seed
         self.cancel = Event()
         self.cached_equity = cached_equity
+        self.time_budget=time_budget
+        self.cooperative=cooperative
 
     def run(self):
         try:
-            result = AnalysisEngine(iterations=self.iterations, seed=self.seed).analyze(self.state, cancel=self.cancel.is_set, cached_equity=self.cached_equity)
+            result = AnalysisEngine(iterations=self.iterations, seed=self.seed,time_budget=self.time_budget,cooperative=self.cooperative).analyze(self.state, cancel=self.cancel.is_set, cached_equity=self.cached_equity)
             if not self.cancel.is_set():
                 self.succeeded.emit(self.version, result)
         except Exception as error:
@@ -581,6 +583,14 @@ class MainWindow(QMainWindow):
                 if isinstance(worker,EquityPreviewWorker): worker.cancel.set()
             return
         if not self.check_live_freshness():return
+        state=self.detector.state
+        if state is not None and any(isinstance(worker,AnalysisWorker) and not worker.cancel.is_set() for worker in self.workers):
+            opponents=sorted(p.seat for p in state.players if p.seat!=state.hero_seat and p.active and not p.folded)
+            if (tuple(observation['hero'])==tuple(state.hero_cards)
+                    and tuple(observation['board'])==tuple(state.board)
+                    and sorted(observation['active_seats'])==opponents):
+                # 完整分析已包含相同勝率，避免預覽再佔用一份運算。
+                return
         key=(token,tuple(observation['hero']),tuple(observation['board']),
             tuple(observation['active_seats']),self.control_options['opponent_range'])
         self.partial_equity_time=monotonic()
@@ -1057,17 +1067,32 @@ class MainWindow(QMainWindow):
         self.current.setText(f"自身底牌：{' '.join(data.get('hero_cards', []))}\n公共牌：{' '.join(data.get('community_cards', []))}\n街次：{data.get('street', '')}　玩家：{len(data.get('players', []))}\n底池：{data.get('pot', 0):,.2f}　跟注額：{data.get('call_amount', 0):,.2f}")
 
     def start_analysis(self):
+        data=self.detector.state.to_dict()
+        data.pop('timestamp',None)
+        data.pop('confidence',None)
+        for player in data.get('players',[]):player.pop('confidence',None)
+        display_key=json.dumps(data,sort_keys=True,ensure_ascii=False)
+        same_context=getattr(self,'_displayed_advice_key',None)==display_key and self.result is not None
+        self._pending_advice_key=display_key
         for worker in self.workers:
             worker.cancel.set()
         self.result = None
         self.generation += 1
         generation = self.generation
-        self.analysis.invalidate('狀態已更新，背景計算中…')
+        self.analysis.begin_refresh(same_context)
         self.mode_label.setText('正在計算，仍可修改輸入；再次按分析會更新。')
-        self.overlay.invalidate('背景計算中…')
+        if not same_context:self.overlay.invalidate('背景計算中…')
         cached = self.equity_cache if self.auto_active and self.equity_cache and self.equity_cache[0] == AnalysisEngine.equity_key(self.detector.state, self.settings.seed.value()) else None
+        if self.auto_active and cached is None and self.partial_equity_result and self.settings.seed.value()==42:
+            state=self.detector.state
+            opponents=tuple(sorted(p.seat for p in state.players if p.seat!=state.hero_seat and p.active and not p.folded))
+            preview_key=(self.auto_generation,tuple(state.hero_cards),tuple(state.board),opponents,self.control_options['opponent_range'])
+            if self.partial_equity_key==preview_key and all(state.ranges.get(str(seat))==preview_key[-1] for seat in opponents):
+                # 尚未輪到自己時先算好的勝率，在金額確認後直接接上決策。
+                cached=(AnalysisEngine.equity_key(state,42),EquityResult(**self.partial_equity_result['equity_details']))
         iterations = 2000 if self.auto_active else self.settings.iterations.currentData()
-        worker = AnalysisWorker(self.detector.version, self.detector.state, iterations, self.settings.seed.value(), self, cached_equity=cached)
+        worker = AnalysisWorker(self.detector.version, self.detector.state, iterations, self.settings.seed.value(), self, cached_equity=cached,
+            time_budget=.25 if self.auto_active else None,cooperative=self.auto_active)
         if self.auto_active:
             self.mode_label.setText('自動更新中；牌面或對手改變時重新估算勝率。')
         worker.succeeded.connect(lambda version, result: self.accept_analysis(generation, version, result))
@@ -1116,6 +1141,9 @@ class MainWindow(QMainWindow):
         self.repository.save_analysis(version, self.result)
         if not self.replay_mode:
             self.analysis.render(self.result)
+            if not self.result.get('equity_only') and self.result.get('hero_turn',True) is True:
+                self.analysis.remember_advice()
+                self._displayed_advice_key=getattr(self,'_pending_advice_key',None)
             self.live_cards.show()
             self.result['action_text']=self.analysis.action_label.text()
             self.result['sizing_advice']=self.analysis.sizing_label.text()
@@ -1133,7 +1161,7 @@ class MainWindow(QMainWindow):
         generation = self.generation
         target=self.control_options['iterations']
         worker = AnalysisWorker(self.detector.version, self.detector.state, min(10000 if current_samples<10000 else target,target),
-            self.settings.seed.value(), self)
+            self.settings.seed.value(), self,cooperative=True)
         worker.succeeded.connect(lambda version, result: self.accept_analysis(generation, version, result))
         worker.failed.connect(lambda version, message: self.accept_failure(generation, version, message))
         worker.finished.connect(lambda: self.worker_finished(worker))

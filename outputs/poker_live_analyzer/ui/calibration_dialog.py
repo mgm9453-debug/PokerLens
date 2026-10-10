@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QHeaderView,
                               QLabel, QPushButton, QTableWidget, QTableWidgetItem,
                               QVBoxLayout, QWidget)
 
-from capture.calibration import CalibrationProfile, CalibrationStore, region_labels
+from capture.calibration import CalibrationProfile, CalibrationStore, region_labels, default_regions
 from capture.graphics_capture import GraphicsWindowCapture
 from capture.profiles import TableProfile
 from capture.window_capture import list_tables
@@ -19,13 +19,16 @@ from .theme import COLORS, STYLE
 
 
 class CalibrationCanvas(RoiEditor):
+    focused=Signal(str)
     """沿用影像顯示座標，鎖定後停止接受拖曳。"""
     def __init__(self):
         super().__init__()
         self.locked = False
+        self.visible_fields=None
+        self._pressed_region=None
         self.labels = region_labels()
         self.setAccessibleName('牌桌校準預覽')
-        self.setToolTip('先選擇右側欄位，再拖曳框住整個文字、牌面或牌背。')
+        self.setToolTip('點選偏移的資訊框，再拖曳重畫；也可點右側欄位選擇。')
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -38,12 +41,18 @@ class CalibrationCanvas(RoiEditor):
             return
         painter.drawImage(rect, self.image)
         for name, region in self.profile.regions.items():
+            if self.visible_fields is not None and name not in self.visible_fields:continue
             selected = name == self.target
             painter.setPen(QPen(QColor(COLORS['gold'] if selected else '#8DDCB5'), 3 if selected else 2))
             box = QRectF(rect.x() + region.x * rect.width(), rect.y() + region.y * rect.height(),
                          region.width * rect.width(), region.height * rect.height())
             painter.drawRect(box)
             label = self.labels.get(name, '自訂區域')
+            if not selected:
+                label={'hero':'底牌','board':'公共牌','pot':'底池','call_amount':'跟注','hero_stack':'自己籌碼'}.get(name,label)
+                if '_' in name and name.split('_')[0] in ('bet','stack','back','chips'):
+                    kind,seat=name.split('_')
+                    label=f'{seat}'+{'bet':'注額','stack':'籌碼','back':'牌背','chips':'籌碼區'}[kind]
             text_box = painter.fontMetrics().boundingRect(label)
             label_box = QRectF(box.x(), max(rect.top(), box.y() - text_box.height() - 6),
                                text_box.width() + 12, text_box.height() + 6)
@@ -55,6 +64,13 @@ class CalibrationCanvas(RoiEditor):
 
     def mousePressEvent(self, event):
         if not self.locked and not self.image.isNull():
+            rect=self.image_rect()
+            hits=[]
+            for name,region in self.profile.regions.items():
+                if self.visible_fields is not None and name not in self.visible_fields:continue
+                box=QRectF(rect.x()+region.x*rect.width(),rect.y()+region.y*rect.height(),region.width*rect.width(),region.height*rect.height())
+                if box.contains(event.position()):hits.append((name.startswith('chips_'),region.width*region.height,name))
+            self._pressed_region=min(hits)[2] if hits else None
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -66,6 +82,9 @@ class CalibrationCanvas(RoiEditor):
             self.start = self.end = None
             return
         if self.start is not None:
+            if self._pressed_region and (event.position()-self.start).manhattanLength()<=3:
+                self.target=self._pressed_region
+                self.focused.emit(self.target)
             # 放開的位置也要裁切，避免未收到移動事件時漏掉框選。
             super().mouseMoveEvent(event)
         super().mouseReleaseEvent(event)
@@ -182,6 +201,9 @@ class CalibrationDialog(QDialog):
         self._preview_pending = False
         self._pending_close = False
         self._closing_result = QDialog.DialogCode.Rejected
+        self._locate_pending=False
+        self._position_check=False
+        self._preview_frame=None
         load_error = ''
         try:
             self.profile = self.store.load() or CalibrationProfile({}, (1128, 799))
@@ -190,8 +212,7 @@ class CalibrationDialog(QDialog):
             load_error = f'原校準設定無法載入，請重新校準：{error}'
         self._build_ui()
         self._refresh_regions()
-        self.status.setText(load_error or ('已載入鎖定設定；按「重新校準」才能修改。' if self.profile.locked else
-                                          '選擇問題欄位並框選；其他欄位沿用自動定位。'))
+        self.status.setText(load_error or '按「檢查讀取問題」，只修正右側列出的資訊；正常位置不用調整。')
         self._sync_canvas()
         self._update_buttons()
         QTimer.singleShot(0, self.refresh_tables)
@@ -207,33 +228,45 @@ class CalibrationDialog(QDialog):
         title = QLabel('辨識位置')
         title.setObjectName('sectionTitle')
         layout.addWidget(title)
-        instruction = QLabel('選牌桌 → 框選有問題的欄位 → 驗證並鎖定。預覽會定格，更新時才換畫面。')
+        instruction = QLabel('自動檢查讀不到的資訊 → 點選問題 → 框住正確位置 → 按「確定」。正常位置不顯示框。')
         instruction.setWordWrap(True)
         layout.addWidget(instruction)
+        status_row=QHBoxLayout()
+        self.position_status=QLabel('位置未鎖定')
+        self.check_status=QLabel('讀取尚未檢查')
+        status_row.addWidget(self.position_status)
+        status_row.addWidget(self.check_status,1)
+        layout.addLayout(status_row)
         table_row = QHBoxLayout()
         table_row.addWidget(QLabel('牌桌視窗'))
         self.table_combo = QComboBox()
         self.table_combo.setAccessibleName('選擇牌桌視窗')
         table_row.addWidget(self.table_combo, 1)
+        self.locate_button=QPushButton('檢查讀取問題')
+        self.locate_button.clicked.connect(self.check_problem_positions)
+        table_row.addWidget(self.locate_button)
         self.preview_button = QPushButton('更新預覽')
         self.preview_button.clicked.connect(self.refresh_tables)
         table_row.addWidget(self.preview_button)
         layout.addLayout(table_row)
         middle = QHBoxLayout()
         self.canvas = CalibrationCanvas()
+        self.canvas.visible_fields=set()
         middle.addWidget(self.canvas, 3)
         side = QWidget()
         side.setMinimumWidth(280)
         side.setMaximumWidth(360)
         controls = QVBoxLayout(side)
         controls.setContentsMargins(0, 0, 0, 0)
-        controls.addWidget(QLabel('牌桌版型'))
+        self.layout_heading=QLabel('牌桌版型')
+        controls.addWidget(self.layout_heading)
         self.layout_combo = QComboBox()
         self.layout_combo.addItem('八人桌', 8)
         self.layout_combo.addItem('六人桌', 6)
         self.layout_combo.setCurrentIndex(self.layout_combo.findData(self.profile.seat_layout))
         controls.addWidget(self.layout_combo)
-        controls.addWidget(QLabel('要校準的欄位'))
+        self.region_heading=QLabel('手動選擇欄位')
+        controls.addWidget(self.region_heading)
         self.region_combo = QComboBox()
         self.region_combo.setAccessibleName('選擇框選欄位')
         controls.addWidget(self.region_combo)
@@ -243,13 +276,13 @@ class CalibrationDialog(QDialog):
         self.clear_region_button = QPushButton('此欄位恢復自動定位')
         self.clear_region_button.clicked.connect(self.clear_region)
         controls.addWidget(self.clear_region_button)
-        controls.addWidget(QLabel('已框選欄位與驗證結果'))
+        controls.addWidget(QLabel('讀不到的資訊：點選後在左側框選'))
         self.results = QTableWidget(0, 2)
-        self.results.setHorizontalHeaderLabels(['欄位', '讀取結果'])
+        self.results.setHorizontalHeaderLabels(['資訊位置', '讀取結果'])
         self.results.verticalHeader().hide()
         self.results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.results.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.results.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.results.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.results.setWordWrap(True)
         self.results.itemSelectionChanged.connect(self._result_selected)
@@ -267,7 +300,12 @@ class CalibrationDialog(QDialog):
         self.unlock_button = QPushButton('重新校準')
         self.automatic_button = QPushButton('使用自動定位')
         self.close_button = QPushButton('關閉')
-        for button in (self.validate_button, self.save_button, self.unlock_button, self.automatic_button, self.close_button):
+        self.lock_button=QPushButton('確定')
+        self.lock_button.clicked.connect(self.lock_positions_and_check)
+        self.advanced_button=QPushButton('其他設定')
+        self.advanced_button.setCheckable(True)
+        self.advanced_button.toggled.connect(self.show_advanced)
+        for button in (self.lock_button,self.unlock_button,self.advanced_button,self.close_button,self.validate_button,self.save_button,self.automatic_button):
             button.setMinimumHeight(44)
             buttons.addWidget(button)
         layout.addLayout(buttons)
@@ -275,15 +313,76 @@ class CalibrationDialog(QDialog):
         self.layout_combo.currentIndexChanged.connect(self._layout_changed)
         self.region_combo.currentIndexChanged.connect(self._region_changed)
         self.canvas.selected.connect(self._canvas_selected)
+        self.canvas.focused.connect(self.focus_region)
         self.validate_button.clicked.connect(self.validate)
         self.save_button.clicked.connect(self.lock_and_save)
         self.unlock_button.clicked.connect(self.unlock)
         self.automatic_button.clicked.connect(self.use_automatic)
         self.close_button.clicked.connect(self.reject)
+        self.show_advanced(False)
+        self.advanced_button.hide()
+        self.unlock_button.hide()
+        self.automatic_button.show()
+
+    def check_problem_positions(self):
+        if self.worker is not None:return
+        self.show_all_positions()
+        if self.canvas.image.isNull():
+            self._problem_check_pending=True
+            return
+        self.canvas.visible_fields=set()
+        self._start_worker(self.profile)
+        self.status.setText('正在自動檢查；只列出需要修正的資訊。')
+
+    def show_advanced(self,visible):
+        for widget in (self.layout_heading,self.layout_combo,self.region_heading,self.region_combo,self.clear_region_button,self.validate_button,self.save_button,self.automatic_button):
+            widget.setVisible(visible)
+
+    def focus_region(self,name):
+        index=self.region_combo.findData(name)
+        if index>=0:self.region_combo.setCurrentIndex(index)
+
+    def show_all_positions(self):
+        if self.worker is not None:return
+        if self.canvas.image.isNull():
+            self._locate_pending=True
+            self.refresh_preview()
+            return
+        self.profile=self.profile.unlock()
+        if not self.profile.regions and self._preview_frame is not None:
+            from vision.player_detector import PlayerDetector
+            detector=PlayerDetector(green_only=True)
+            detector.detect(self._preview_frame)
+            if detector.seat_layout!=self.profile.seat_layout:
+                self.profile=CalibrationProfile({},self.profile.reference_size,detector.seat_layout)
+                self.layout_combo.blockSignals(True)
+                self.layout_combo.setCurrentIndex(self.layout_combo.findData(detector.seat_layout))
+                self.layout_combo.blockSignals(False)
+                self._refresh_regions()
+        regions={**default_regions(self.profile.seat_layout),**self.profile.regions}
+        self.profile=CalibrationProfile(regions,(self.canvas.image.width(),self.canvas.image.height()),self.profile.seat_layout)
+        self._invalidate('定位已準備完成；正常位置不顯示框，只需修正讀不到的資訊。')
+
+    def lock_positions_and_check(self):
+        if self.worker is not None or self.canvas.image.isNull() or self.table_combo.currentData() is None:return
+        if not self.profile.regions:self.show_all_positions()
+        try:
+            self.profile=self.profile.unlock().lock_positions()
+            self.store.save(self.profile)
+            self._sync_canvas()
+            self.on_saved()
+            self._position_check=True
+            self.check_status.setText('正在檢查實際讀取…')
+            self.status.setText('位置已鎖定並儲存；正在讀取三個新影格，確認哪些問題已排除。')
+            self._start_worker(self.profile)
+        except (ValueError,OSError) as error:
+            self.status.setText(f'鎖定或檢查未完成：{error}')
+            self._update_buttons()
 
     def _sync_canvas(self):
         self.canvas.profile = TableProfile(dict(self.profile.regions))
-        self.canvas.locked = self.profile.locked
+        self.canvas.locked = self.profile.locked or self.profile.positions_locked
+        self.position_status.setText('位置已鎖定並儲存' if self.canvas.locked else '位置未鎖定')
         self.canvas.labels = region_labels(self.profile.seat_layout)
         self.canvas.update()
 
@@ -322,6 +421,9 @@ class CalibrationDialog(QDialog):
         row = self.results.currentRow()
         item = self.results.item(row, 0)
         if item is not None:
+            self.profile=self.profile.unlock()
+            self._sync_canvas()
+            self.canvas.visible_fields={item.data(Qt.ItemDataRole.UserRole)}
             index = self.region_combo.findData(item.data(Qt.ItemDataRole.UserRole))
             if index >= 0:
                 self.region_combo.setCurrentIndex(index)
@@ -329,12 +431,13 @@ class CalibrationDialog(QDialog):
     def _render_results(self, readings=None, errors=None):
         readings, errors = readings or {}, errors or {}
         labels = region_labels(self.profile.seat_layout)
-        self.results.setRowCount(len(self.profile.regions))
-        for row, name in enumerate(self.profile.regions):
+        names=[name for name in self.profile.regions if name in errors]
+        self.results.setRowCount(len(names))
+        for row, name in enumerate(names):
             label = QTableWidgetItem(labels.get(name, '自訂區域'))
             label.setData(Qt.ItemDataRole.UserRole, name)
             self.results.setItem(row, 0, label)
-            value = errors.get(name) or readings.get(name) or ('已鎖定' if self.profile.locked else '尚未驗證')
+            value = errors.get(name) or readings.get(name) or ('位置已鎖定；待確認讀取' if self.profile.positions_locked else '已鎖定' if self.profile.locked else '尚未驗證')
             result = QTableWidgetItem(str(value))
             result.setToolTip(str(value))
             if name in errors:
@@ -352,10 +455,13 @@ class CalibrationDialog(QDialog):
         self.validate_button.setEnabled(ready and bool(self.profile.regions) and not busy and not self.profile.locked)
         self.save_button.setEnabled(ready and self.profile.verified and not busy and not self.profile.locked)
         self.unlock_button.setEnabled(self.profile.locked and not self._pending_close)
+        self.unlock_button.setEnabled((self.profile.locked or self.profile.positions_locked) and not busy)
+        self.lock_button.setEnabled(ready and bool(self.profile.regions) and not busy)
+        self.locate_button.setEnabled(not busy and self.table_combo.currentData() is not None)
         self.automatic_button.setEnabled(not busy)
-        self.clear_region_button.setEnabled(not self.profile.locked and self.region_combo.currentData() in self.profile.regions and not self._pending_close)
+        self.clear_region_button.setEnabled(not self.canvas.locked and self.region_combo.currentData() in self.profile.regions and not busy)
         self.canvas.setEnabled(not self._pending_close)
-        self.layout_combo.setEnabled(not self.profile.locked and not self._pending_close)
+        self.layout_combo.setEnabled(not self.canvas.locked and not busy)
         self.preview_button.setEnabled(not self._pending_close)
 
     def _invalidate(self, message):
@@ -363,6 +469,8 @@ class CalibrationDialog(QDialog):
         if self.worker is not None:
             self.worker.requestInterruption()
         self.profile = self.profile.unlock()
+        self._position_check=False
+        self.check_status.setText('讀取尚未檢查')
         self._sync_canvas()
         self._render_results()
         self.status.setText(message)
@@ -372,7 +480,7 @@ class CalibrationDialog(QDialog):
         self.set_region(name, self.canvas.profile.regions[name])
 
     def set_region(self, name, region):
-        if self.profile.locked or self.canvas.image.isNull():
+        if self.canvas.locked or self.canvas.image.isNull():
             return
         self.profile = self.profile.with_region(name, region)
         self._invalidate('框選已更新，請重新驗證讀取。')
@@ -464,12 +572,13 @@ class CalibrationDialog(QDialog):
     def _accept_preview(self, token, frame):
         if token != self._generation or self._pending_close:
             return
+        self._preview_frame=frame.copy()
         size = (frame.shape[1], frame.shape[0])
         if size != tuple(self.profile.reference_size):
             self.profile = CalibrationProfile(dict(self.profile.regions), size, self.profile.seat_layout)
             self._invalidate('牌桌尺寸已更新，請確認框選並重新驗證。')
-        elif self.profile.locked:
-            self.status.setText('已載入鎖定位置；按「重新校準」才能修改。')
+        elif self.profile.locked or self.profile.positions_locked:
+            self.status.setText('已載入儲存位置；按「檢查讀取問題」即可選擇需要修正的資訊。')
         else:
             self.status.setText('預覽已定格；選擇欄位並拖曳框選，再驗證讀取。')
         self.canvas.set_frame(frame)
@@ -489,9 +598,30 @@ class CalibrationDialog(QDialog):
             self.status.setText('校準區域與本次結果不一致，請重新驗證讀取。')
             return
         self._render_results(value.readings, value.errors)
+        self.canvas.visible_fields=set()
+        self.canvas.update()
+        if self._position_check:
+            self._position_check=False
+            if value.valid:
+                verified=self.profile.mark_verified().lock()
+                try:self.store.save(verified)
+                except (ValueError,OSError) as error:
+                    self.check_status.setText('本次讀取通過，但驗證狀態未儲存')
+                    self.status.setText(f'位置仍已鎖定；驗證狀態儲存失敗：{error}')
+                    self._update_buttons()
+                    return
+                self.profile=verified
+                self._sync_canvas()
+                self.check_status.setText(f'本次 {len(value.readings)} 項讀取通過')
+                self.status.setText('位置已鎖定；本次讀取問題已排除。後續牌局仍會持續檢查資料。')
+            else:
+                self.check_status.setText(f'仍有 {len(value.errors)} 項未確認，已讀取 {len(value.readings)} 項')
+                self.status.setText('修正位置已儲存，問題尚未全部排除。點選右側問題、框選正確位置，再按「確定」。未發牌或未輪到自己時，可等資料出現後再檢查。')
+            self._update_buttons()
+            return
         if value.valid:
             self.profile = self.profile.mark_verified()
-            self.status.setText('所選欄位讀取通過，可以鎖定並儲存。無下注確認需一併框選籌碼區。')
+            self.status.setText('目前讀取正常，不需要手動修正；可以直接關閉。')
         else:
             self.status.setText('驗證未通過；請按表格選擇問題欄位、重新框選，再重試。')
         self._update_buttons()
@@ -500,6 +630,9 @@ class CalibrationDialog(QDialog):
         if token != self._generation or self._pending_close:
             return
         self.status.setText(f'未完成：{message}')
+        if self._position_check:
+            self._position_check=False
+            self.check_status.setText('讀取檢查未完成，問題尚未排除')
         self._render_results(errors={name: message for name in self.profile.regions})
         self._update_buttons()
 
@@ -513,6 +646,12 @@ class CalibrationDialog(QDialog):
         elif self._preview_pending:
             self._preview_pending = False
             self.refresh_preview()
+        elif self._locate_pending:
+            self._locate_pending=False
+            self.show_all_positions()
+            if getattr(self,'_problem_check_pending',False):
+                self._problem_check_pending=False
+                self.check_problem_positions()
         else:
             self._update_buttons()
 

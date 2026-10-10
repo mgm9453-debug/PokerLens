@@ -13,6 +13,7 @@ from .profiles import Region
 
 SCHEMA_VERSION = 1
 _FIELDS = {'schema_version', 'regions', 'reference_size', 'seat_layout', 'locked', 'verified_signature'}
+_POSITION_FIELDS = {'position_signature'}
 _COORDINATES = ('x', 'y', 'width', 'height')
 
 
@@ -103,6 +104,7 @@ class CalibrationProfile:
     seat_layout: int = 8
     locked: bool = False
     verified_signature: str = ''
+    position_signature: str = ''
 
     def __post_init__(self):
         labels = region_labels(self.seat_layout)
@@ -116,8 +118,12 @@ class CalibrationProfile:
             raise ValueError('辨識位置設定的鎖定狀態必須是布林值')
         if not isinstance(self.verified_signature, str):
             raise ValueError('辨識位置設定的驗證簽章必須是文字')
+        if not isinstance(self.position_signature,str):
+            raise ValueError('位置鎖定簽章必須是文字')
         object.__setattr__(self, 'regions', dict(self.regions))
         object.__setattr__(self, 'reference_size', _size(self.reference_size))
+        if self.position_signature and not self.positions_locked:
+            raise ValueError('鎖定位置已變更，請重新確認位置')
         if self.locked:
             self._assert_verified()
 
@@ -135,6 +141,14 @@ class CalibrationProfile:
     def verified(self) -> bool:
         return bool(self.regions) and bool(self.verified_signature) and self.verified_signature == self.signature
 
+    @property
+    def positions_locked(self) -> bool:
+        return bool(self.regions) and bool(self.position_signature) and self.position_signature==self.signature
+
+    def lock_positions(self):
+        if not self.regions:raise ValueError('請先顯示資訊位置')
+        return replace(self,position_signature=self.signature)
+
     def _assert_verified(self):
         if not self.regions:
             raise ValueError('尚未框選任何辨識區域，無法鎖定或驗證')
@@ -144,7 +158,7 @@ class CalibrationProfile:
     def with_region(self, name: str, region: Region):
         regions = dict(self.regions)
         regions[name] = region
-        return replace(self, regions=regions, locked=False, verified_signature='')
+        return replace(self, regions=regions, locked=False, verified_signature='',position_signature='')
 
     def mark_verified(self):
         if not self.regions:
@@ -156,7 +170,7 @@ class CalibrationProfile:
         return replace(self, locked=True)
 
     def unlock(self):
-        return replace(self, locked=False, verified_signature='')
+        return replace(self, locked=False, verified_signature='',position_signature='')
 
     def assert_compatible(self, size: tuple[int, int]):
         width, height = _size(size)
@@ -183,7 +197,7 @@ class CalibrationStore:
             data = json.loads(content)
         except (ValueError, RecursionError) as error:
             raise ValueError('辨識位置設定檔毀損，請重新校準') from error
-        if not isinstance(data, dict) or set(data) != _FIELDS:
+        if not isinstance(data, dict) or set(data) not in (_FIELDS,_FIELDS|_POSITION_FIELDS):
             raise ValueError('辨識位置設定欄位不完整或包含未知欄位')
         if type(data['schema_version']) is not int or data['schema_version'] != SCHEMA_VERSION:
             raise ValueError('未知的辨識位置設定格式版本，請重新校準')
@@ -206,6 +220,7 @@ class CalibrationStore:
             seat_layout=data['seat_layout'],
             locked=data['locked'],
             verified_signature=data['verified_signature'],
+            position_signature=data.get('position_signature',''),
         )
 
     def save(self, profile: CalibrationProfile):
@@ -221,6 +236,7 @@ class CalibrationStore:
             'locked': profile.locked,
             'verified_signature': profile.verified_signature,
         }
+        if profile.position_signature:data['position_signature']=profile.position_signature
         temporary_path = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
