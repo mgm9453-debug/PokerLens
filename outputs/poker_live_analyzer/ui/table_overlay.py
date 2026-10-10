@@ -10,6 +10,8 @@ class TableOverlay(QWidget):
         from .fonts import interface_font
         self.setFont(interface_font())
         self.setWindowTitle('牌局分析浮窗')
+        self.display_options={}
+        self.action_role=None
         self.drag_origin=None
         self.setFixedWidth(380)
         from .theme import STYLE
@@ -31,7 +33,19 @@ class TableOverlay(QWidget):
         self.details.setStyleSheet('font-size:16px;color:#cbdbe9;padding:8px;')
         layout.addWidget(self.details)
 
+    def apply_display_options(self,options):
+        self.display_options=dict(options)
+        from .action_palette import action_color,readable_color
+        color=readable_color(action_color(self.action_role,options))
+        self.label.setStyleSheet(f'font-size:20px;font-weight:bold;color:{color};padding:8px;')
+
     def render(self, result, state):
+        text=result.get('action_text','')
+        self.action_role=result.get('action_role')
+        if not self.action_role:
+            for word,role in [('棄牌','fold_color'),('跟注','call_color'),('過牌','check_color'),('加注','raise_color')]:
+                if word in text:self.action_role=role;break
+        self.apply_display_options(self.display_options)
         if result.get('equity_only'):
             win=result.get('equity_details',{}).get('win_probability')
             self.label.setText('勝率已估算｜下注金額待確認')
@@ -48,6 +62,8 @@ class TableOverlay(QWidget):
         self.adjustSize()
 
     def invalidate(self,message):
+        self.action_role=None
+        self.apply_display_options(self.display_options)
         self.label.setText(message.split('\n')[0])
         self.details.clear()
         self.adjustSize()

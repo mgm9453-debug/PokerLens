@@ -1,6 +1,6 @@
 # 主要配色集中於此，僅影響介面呈現。
-COLORS = {'background':'#08090A','card':'#151617','secondary':'#1B1C1E',
-          'gold':'#D8AE62','text_gold':'#F4DCA4','border':'#49433A',
+COLORS = {'background':'#08090A','card':'#111112','secondary':'#181715',
+          'gold':'#D8AE62','text_gold':'#F4DCA4','border':'#8C7049',
           'text':'#FFFFFF','muted':'#FFFFFF','win':'#F0CE81','tie':'#D8A3E8',
           'matrix':'#0B9F68','winner':'#C94D4D'}
 

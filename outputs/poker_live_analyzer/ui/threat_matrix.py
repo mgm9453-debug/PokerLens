@@ -77,8 +77,8 @@ class ThreatMatrix(QWidget):
         self.winner='#ef4444'
         self.last_key=None
         self.preflop_context=None
-        self.preflop_colors={'preflop_background':'#34373b','preflop_raise':'#9d2638',
-            'preflop_call':'#087553','preflop_fold':'#182333','preflop_check':'#655124'}
+        from control_settings import DEFAULTS
+        self.preflop_colors={key:value for key,value in DEFAULTS.items() if key.startswith('preflop_')}
         from poker.preflop import RangeBook
         from app_paths import user_data_dir
         self.range_error=''
@@ -184,8 +184,8 @@ class ThreatMatrix(QWidget):
         # 以分開的文字與色點標示，保留設定配色且避免深色文字難以閱讀。
         cells=[]
         for color,label in entries:
-            source=QColor(color)
-            tint=QColor(*(round(channel*.45+255*.55) for channel in (source.red(),source.green(),source.blue()))).name()
+            from .action_palette import readable_color
+            tint=readable_color(color)
             cells.append(f'<td><span style="color:{tint};">●　{label}</span></td>')
         self.legend.setText('<table width="100%" cellspacing="0" cellpadding="0"><tr>'+''.join(cells)+
             '</tr></table><span style="font-size:15px;font-weight:400;color:#e6e3dd;">s＝同花　｜　o＝不同花</span>')

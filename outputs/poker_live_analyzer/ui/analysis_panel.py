@@ -170,15 +170,17 @@ class AnalysisPanel(QWidget):
             self.action_label.setGraphicsEffect(effect)
             self.reminder_timer.start(1200)
         role=self.action_label.property('role_color')
-        color={'call_color':'#43dfb9','fold_color':'#f27680','check_color':'#8abaff'}.get(role,'#E8CA8A')
+        from .action_palette import action_color,readable_color
+        color=readable_color(action_color(role,self.display_options))
         text=(f'<span style="font-size:13px">上一次｜{datetime.now(timezone(timedelta(hours=8))):%H:%M:%S}｜非目前結果</span><br>'
               f'<span style="color:{color};font-size:20px;font-weight:600">{escape(signature[0])}</span><br>'
               f'<span style="color:#43dfb9;font-size:18px">{escape(self.win_label.text())}</span>　'
               f'<span style="color:#c49af5;font-size:18px">{escape(self.tie_label.text())}</span><br>'
               f'<span style="font-size:13px">{escape(signature[1].replace("目前下注","當時下注").replace("目前底池","當時底池"))}</span>')
-        self._last_advice={'signature':signature,'text':text}
+        self._last_advice={'signature':signature,'text':text,'role':role,'color':color}
 
     def _show_previous(self,snapshot):
+        self._shown_previous=snapshot
         self.previous_label.setText(snapshot['text'])
         self._fit_previous()
 
@@ -475,10 +477,9 @@ class AnalysisPanel(QWidget):
 
     def set_action(self,text,color):
         role={'#087d55':'call_color','#c42b36':'fold_color','#1765aa':'check_color','#9a6500':'wait_color'}.get(color)
-        color=self.display_options.get(role,color)
-        if self.dark_theme:
-            from .theme import accent
-            color=accent(color)
+        from .action_palette import action_color,readable_color
+        if text.startswith(('加注','依估算建議加注','行動建議：加注')):role='raise_color'
+        color=readable_color(action_color(role,self.display_options)) if self.dark_theme and role else self.display_options.get(role,color)
         self.action_label.setText(text)
         self.action_label.setProperty('role_color',role)
         self.action_label.setToolTip(text)
@@ -489,6 +490,14 @@ class AnalysisPanel(QWidget):
 
     def apply_display_options(self,options):
         self.display_options=dict(options)
+        from .action_palette import action_color,readable_color
+        for snapshot in (getattr(self,'_last_advice',None),getattr(self,'_shown_previous',None)):
+            if snapshot and 'color' in snapshot:
+                color=readable_color(action_color(snapshot.get('role'),options))
+                snapshot['text']=snapshot['text'].replace(f'color:{snapshot["color"]};font-size:20px',f'color:{color};font-size:20px')
+                snapshot['color']=color
+        shown=getattr(self,'_shown_previous',None)
+        if shown:self.previous_label.setText(shown['text'])
         self.threat_matrix.apply_colors(options.get('matrix_background','#00cc66'),options.get('matrix_winner','#ef4444'))
         self.threat_matrix.apply_preflop_colors(options)
         font=round(options.get('probability_font',32)*self._view_scale)
@@ -504,7 +513,7 @@ class AnalysisPanel(QWidget):
             self.issue_label.setStyleSheet(card_style(COLORS['text'],max(13,round(15*self._view_scale))).replace('padding:14px','padding:7px 12px'))
 
         role=self.action_label.property('role_color')
-        default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}.get(role,'#9a6500')
+        default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','raise_color':'#df5969','wait_color':'#9a6500'}.get(role,'#9a6500')
         self.set_action(self.action_label.text(),default)
         self.threat_pictures.setVisible(options.get('show_threats',True) and self.threat_layout.count()>0)
         self.threat_matrix.setVisible(options.get('show_threats',True))

@@ -80,14 +80,27 @@ class RoundedCellDelegate(QStyledItemDelegate):
 
 
 class ReferenceSurface(QWidget):
+    """黑曜石底紋與金屬框；紋理只在閱讀區外側繪製。"""
     def paintEvent(self,event):
         super().paintEvent(event)
         painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(Qt.NoBrush);painter.setPen(QPen(QColor('#625035'),1))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(4,4,-4,-4),17,17)
-        for y in (104,self.height()-24):
-            path=QPainterPath();path.moveTo(5,y)
-            path.cubicTo(self.width()*.24,y-42,self.width()*.28,y+10,self.width()*.48,y+3)
-            gradient=QLinearGradient(0,y,self.width()*.5,y);gradient.setColorAt(0,QColor('#E7BE72'));gradient.setColorAt(1,QColor(231,190,114,0))
-            painter.setPen(QPen(gradient,1.4));painter.drawPath(path)
+        rect=QRectF(self.rect()).adjusted(4,4,-4,-4)
+        background=QLinearGradient(rect.topLeft(),rect.bottomRight())
+        background.setColorAt(0,QColor('#17140e'));background.setColorAt(.25,QColor('#070809'))
+        background.setColorAt(.8,QColor('#090909'));background.setColorAt(1,QColor('#211a0f'))
+        painter.setBrush(background);painter.setPen(Qt.NoPen);painter.drawRoundedRect(rect,20,20)
+        # 固定的細緻石紋，不隨資料更新或重繪改變。
+        for side in (0,1):
+            for index in range(9):
+                x=8+index*2 if side==0 else self.width()-8-index*2
+                y=(index*113)%max(1,self.height())
+                vein=QPainterPath();vein.moveTo(x,y)
+                vein.cubicTo(x+7,y+38,x-6,y+65,x+3,y+110)
+                painter.setPen(QPen(QColor(199,158,81,24),.6));painter.drawPath(vein)
+        metal=QLinearGradient(rect.topLeft(),rect.bottomRight())
+        for point,color in ((0,'#735831'),(.18,'#f3d48e'),(.45,'#58452a'),(.75,'#b38b49'),(1,'#edd09a')):
+            metal.setColorAt(point,QColor(color))
+        painter.setBrush(Qt.NoBrush);painter.setPen(QPen(metal,1.4));painter.drawRoundedRect(rect,20,20)
+        painter.setPen(QPen(QColor(216,174,98,40),1))
+        painter.drawRoundedRect(rect.adjusted(3,3,-3,-3),17,17)
         painter.end()

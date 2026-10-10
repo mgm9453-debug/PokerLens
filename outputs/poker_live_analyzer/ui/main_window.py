@@ -340,6 +340,7 @@ class MainWindow(QMainWindow):
         self.refresh_history()
         self.statusBar().showMessage('就緒：此階段使用假資料與手動輸入')
         self.analysis.apply_display_options(self.control_options)
+        self.overlay.apply_display_options(self.control_options)
         self.live_numbers.hide()
         self.control_timer=QTimer(self)
         self.control_timer.timeout.connect(self.poll_control_settings)
@@ -501,6 +502,7 @@ class MainWindow(QMainWindow):
         previous=self.control_options
         self.control_options=validate(options)
         self.analysis.apply_display_options(self.control_options)
+        self.overlay.apply_display_options(self.control_options)
         self.live_numbers.hide()
         if previous['auto_dock']!=self.control_options['auto_dock']:
             self.dock_key=None
@@ -1170,6 +1172,7 @@ class MainWindow(QMainWindow):
                 self._displayed_advice_key=getattr(self,'_pending_advice_key',None)
             self.live_cards.show()
             self.result['action_text']=self.analysis.action_label.text()
+            self.result['action_role']=self.analysis.action_label.property('role_color')
             self.result['sizing_advice']=self.analysis.sizing_label.text()
             self.overlay.render(self.result, self.detector.state.to_dict())
             self.statusBar().showMessage(f'版本 {version}：分析已更新')

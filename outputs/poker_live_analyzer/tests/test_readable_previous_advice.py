@@ -26,6 +26,8 @@ def test_previous_card_preserves_action_color_after_waiting():
     panel=AnalysisPanel();panel.enable_fixed_layout()
     panel.set_action('棄牌','#c42b36');panel.remember_advice()
     panel.invalidate('沒有可見底牌')
-    assert '#f27680' in panel.previous_label.text()
+    from ui.action_palette import readable_color
+    from control_settings import DEFAULTS
+    assert readable_color(DEFAULTS['preflop_fold']) in panel.previous_label.text()
     assert '底牌' in panel.sizing_label.text()
     panel.close()

@@ -2,14 +2,14 @@
 import json
 from pathlib import Path
 
-DEFAULTS={'probability_font':32,'action_font':30,'text_font':20,'refresh_ms':100,
+DEFAULTS={'palette_revision':1,'probability_font':32,'action_font':30,'text_font':20,'refresh_ms':100,
     'iterations':50000,'opponent_range':'standard','bet_percentages':[25,33,50,66,75,100,125],
     'auto_dock':True,'show_chips':True,'show_threats':True,'picture_scale':100,
     'game_mode':'tournament','rake_known':False,'rake_percent':5,'rake_cap':0,
     'bounty_active':False,'bounty_known':False,'bounty_average':0,
     'matrix_background':'#00cc66','matrix_winner':'#ef4444',
-    'preflop_background':'#34373b','preflop_raise':'#9d2638','preflop_call':'#087553',
-    'preflop_fold':'#182333','preflop_check':'#655124',
+    'preflop_background':'#34373b','preflop_raise':'#df5969','preflop_call':'#39c995',
+    'preflop_fold':'#182333','preflop_check':'#edc66b',
     'win_color':'#087d55','tie_color':'#7045b4','call_color':'#087d55',
     'fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}
 LIMITS={'probability_font':(24,48),'action_font':(24,44),'text_font':(14,26),'refresh_ms':(100,1000)}
@@ -26,6 +26,7 @@ def validate(data):
         if key in LIMITS:
             low,high=LIMITS[key]
             valid=type(value) is int and low<=value<=high
+        elif key=='palette_revision': valid=type(value) is int and value==1
         elif key=='iterations': valid=type(value) is int and value in (10000,50000,100000)
         elif key=='opponent_range': valid=value in ('tight','standard','loose')
         elif key=='game_mode': valid=value in ('cash','tournament','mystery')
@@ -38,11 +39,24 @@ def validate(data):
             valid=isinstance(value,str) and bool(re.fullmatch(r'#[0-9a-fA-F]{6}',value))
         if not valid: raise ValueError('設定超出允許範圍')
         result[key]=list(value) if key=='bet_percentages' else value
+    # 舊文字配色保留相容鍵，圖表配色為唯一來源。
+    aliases={'call_color':'preflop_call','fold_color':'preflop_fold','check_color':'preflop_check'}
+    legacy={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa'}
+    for alias,key in aliases.items():
+        if key not in data and alias in data and data[alias]!=legacy[alias]:result[key]=data[alias]
+        result[alias]=result[key]
     return result
 
 def read(path=PATH):
     path=Path(path)
-    return validate(json.loads(path.read_text(encoding='utf-8'))) if path.exists() else validate({})
+    if not path.exists():return validate({})
+    data=json.loads(path.read_text(encoding='utf-8'))
+    if isinstance(data,dict) and 'palette_revision' not in data:
+        # 只遷移舊版預設一次；新版手動選擇同一色碼時不覆寫。
+        old_charts={'preflop_raise':'#9d2638','preflop_call':'#087553','preflop_check':'#655124'}
+        for key,old in old_charts.items():
+            if data.get(key)==old:data[key]=DEFAULTS[key]
+    return validate(data)
 
 def write(data,path=PATH):
     path=Path(path)
