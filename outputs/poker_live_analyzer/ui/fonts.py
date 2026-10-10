@@ -14,6 +14,6 @@ def interface_font():
                 raise RuntimeError('無法載入介面字體：'+name)
         _loaded=True
     font=QFont()
-    font.setFamilies(['Inter','Noto Sans TC','GenSenRounded2 TW'])
+    font.setFamilies(['Inter','GenSenRounded2 TW','Noto Sans TC'])
     font.setPointSize(11)
     return font

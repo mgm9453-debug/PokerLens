@@ -40,11 +40,11 @@ class ThreatMatrix(QWidget):
         layout.setSpacing(2)
         self.caption=QLabel('')
         self.caption.setWordWrap(True)
-        self.caption.setStyleSheet('font-size:14px;color:white;')
+        self.caption.setStyleSheet('font-family:"Inter","GenSenRounded2 TW","Noto Sans TC";font-size:14px;color:white;')
         layout.addWidget(self.caption)
         self.legend=QLabel()
         self.legend.setWordWrap(True)
-        self.legend.setStyleSheet('font-size:14px;color:white;')
+        self.legend.setStyleSheet('font-family:"Inter","GenSenRounded2 TW","Noto Sans TC";font-size:19px;font-weight:500;color:white;padding:3px 0;')
         layout.addWidget(self.legend)
         self.table=QTableWidget(13,13)
         from .reference_style import RoundedCellDelegate
@@ -176,12 +176,19 @@ class ThreatMatrix(QWidget):
         """圖例放在圖表上方；文字與配色一致，不混用行動與牌力顏色。"""
         if preflop:
             entries=[(self.preflop_colors['preflop_'+key],label) for key,label in
-                (('raise','加注'),('call','跟注'),('check','過牌'),('fold','棄牌'),('background','無策略資料'))]
+                (('raise','加注'),('call','跟注'),('check','過牌'),('fold','棄牌'),('background','無資料'))]
         else:
             from .theme import COLORS
             entries=[(COLORS['matrix'] if self.background=='#00cc66' else self.background,'一般牌型'),
                 (COLORS['winner'] if self.winner=='#ef4444' else self.winner,'目前能贏你的牌')]
-        self.legend.setText('　'.join(f'<span style="background-color:{color};color:{self.text_color(color)};"> {label} </span>' for color,label in entries))
+        # 以分開的文字與色點標示，保留設定配色且避免深色文字難以閱讀。
+        cells=[]
+        for color,label in entries:
+            source=QColor(color)
+            tint=QColor(*(round(channel*.45+255*.55) for channel in (source.red(),source.green(),source.blue()))).name()
+            cells.append(f'<td><span style="color:{tint};">●　{label}</span></td>')
+        self.legend.setText('<table width="100%" cellspacing="0" cellpadding="0"><tr>'+''.join(cells)+
+            '</tr></table><span style="font-size:15px;font-weight:400;color:#e6e3dd;">s＝同花　｜　o＝不同花</span>')
 
     def apply_preflop_colors(self,options):
         changed={key:options[key] for key in self.preflop_colors if key in options and options[key]!=self.preflop_colors[key]}

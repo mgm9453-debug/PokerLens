@@ -16,8 +16,8 @@ def test_actual_chinese_and_latin_glyphs_use_requested_fonts(tmp_path):
     window.show()
     app.processEvents()
     font=window.analysis.win_label.font()
-    assert families('勝率',font)=={'Noto Sans TC'}
+    assert families('勝率',font)=={'GenSenRounded2 TW'}
     assert families('52.0% ABC',font)=={'Inter'}
-    assert families('平手',window.overlay.label.font())=={'Noto Sans TC'}
+    assert families('平手',window.overlay.label.font())=={'GenSenRounded2 TW'}
     assert families('500',window.overlay.label.font())=={'Inter'}
     window.close()

@@ -6,7 +6,7 @@ COLORS = {'background':'#08090A','card':'#151617','secondary':'#1B1C1E',
 
 """黑金桌面介面的共用樣式，保留清楚的文字與操作狀態。"""
 STYLE='''
-QWidget {background:#0D0C0A;color:#F2EEE5;font-family:"Inter","Noto Sans TC","GenSenRounded2 TW";font-size:15px;}
+QWidget {background:#0D0C0A;color:#F2EEE5;font-family:"Inter","GenSenRounded2 TW","Noto Sans TC";font-size:15px;}
 QMainWindow {background:#0D0C0A;}
 QWidget#surfacePanel {background:#15120F;border:1px solid #9B7133;border-radius:16px;}
 QLabel#sectionTitle {background:transparent;color:#E8CA8A;font-size:18px;font-weight:600;padding:4px;}

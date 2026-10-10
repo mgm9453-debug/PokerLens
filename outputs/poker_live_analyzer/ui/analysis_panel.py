@@ -237,10 +237,10 @@ class AnalysisPanel(QWidget):
         if self.dark_theme and self.fixed_layout:
             scale=max(.75,min(1.3,self.width()/700,self.window().height()/960))
             self._view_scale=scale
-            self.action_label.setFixedHeight(round(74*scale))
-            self.probabilities.setFixedHeight(round(92*scale))
-            self.issue_label.setFixedHeight(round(72*scale))
-            self.sizing_label.setFixedHeight(round(58*scale))
+            self.action_label.setFixedHeight(round(70*scale))
+            self.probabilities.setFixedHeight(round(80*scale))
+            self.issue_label.setFixedHeight(round(68*scale))
+            self.sizing_label.setFixedHeight(round(48*scale))
             self.layout().setSpacing(round(3*scale))
             self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
