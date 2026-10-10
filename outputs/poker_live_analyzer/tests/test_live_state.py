@@ -27,7 +27,7 @@ def test_snapshot_uses_detected_players_and_unknown_effective_stack():
     assert sum(p['active'] for p in state['players']) == 7
     assert state['call_amount'] == 185
     assert state['effective_stack'] == 0
-    assert state['players'][2]['position'] == '籌碼未讀取'
+    assert state['players'][2]['position'] == ''
     assert assembler.build(cards, players, amounts)['hand_id'] == state['hand_id']
     assembler.waiting()
     assert assembler.build(cards, players, amounts)['hand_id'] != state['hand_id']
@@ -60,3 +60,35 @@ def test_call_mismatch_reports_the_actual_numbers():
     assert '按鈕 100' in str(error.value)
     assert '計算差額 185' in str(error.value)
     assert '最高下注 285' in str(error.value)
+
+
+def test_position_context_independent_of_call_amount_and_keeps_folded_seat():
+    assembler = LiveStateAssembler()
+    cards, players, amounts = inputs()
+    amounts.seat_stacks = {seat: 4000 for seat in range(8)}
+    amounts.field_reliable = {f'stack_{seat}': True for seat in range(8)}
+    amounts.call_amount = None
+    context = assembler.observe_position(cards, players, amounts, 5, (50,100))
+    assert context['position'] == 'UTG'
+    assert context['players'] == 8
+    players.active_seats = (6, 7)
+    context = assembler.observe_position(cards, players, amounts, None, (50,100))
+    assert context['position'] == 'UTG'
+    assert context['players'] == 8
+    assembler.waiting()
+    context = assembler.observe_position(cards, players, amounts, None, (50,100))
+    assert context['position'] is None
+
+
+def test_ocr_failure_is_not_an_empty_seat_or_a_position():
+    cards, players, amounts = inputs()
+    context = LiveStateAssembler().observe_position(cards, players, amounts, 5, (50,100))
+    assert context['position'] is None
+
+
+def test_confirmed_empty_seat_is_excluded_without_blocking_position():
+    cards, players, amounts = inputs()
+    players.active_seats = (2,3,4,5,6,7)
+    context = LiveStateAssembler().observe_position(cards, players, amounts, 5, (50,100), empty_seats=(1,))
+    assert context['players'] == 7
+    assert 1 not in context['positions']

@@ -62,6 +62,19 @@ class RoundedCellDelegate(QStyledItemDelegate):
         painter.save();painter.setRenderHint(QPainter.Antialiasing)
         rect=QRectF(option.rect).adjusted(1,1,-1,-1)
         painter.setPen(Qt.NoPen);painter.setBrush(index.data(Qt.BackgroundRole));painter.drawRoundedRect(rect,4,4)
+        segments=index.data(Qt.UserRole+1)
+        if segments:
+            path=QPainterPath();path.addRoundedRect(rect,4,4)
+            painter.save();painter.setClipPath(path)
+            left=rect.left()
+            for color,fraction in segments:
+                width=rect.width()*fraction
+                painter.fillRect(QRectF(left,rect.top(),width,rect.height()),QColor(color))
+                left+=width
+            painter.restore()
+        if index.data(Qt.UserRole+2):
+            painter.setPen(QPen(QColor('#f1ce7b'),2));painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(1,1,-1,-1),4,4)
         painter.setFont(option.font);painter.setPen(index.data(Qt.ForegroundRole).color())
         painter.drawText(rect,Qt.AlignCenter,str(index.data(Qt.DisplayRole)));painter.restore()
 

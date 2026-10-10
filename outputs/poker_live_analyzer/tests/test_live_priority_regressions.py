@@ -60,12 +60,12 @@ def test_invalid_matrix_clears_red_without_losing_any_hand():
         assert matrix.table.rowCount()==matrix.table.columnCount()==13
         assert matrix.table.item(0,0).text()=='AA'
         assert matrix.table.item(12,12).text()=='22'
-        assert all(matrix.table.item(r,c).background().color().name()=='#0b9f68'
+        assert all(matrix.table.item(r,c).background().color().name()=='#34373b'
             for r in range(13) for c in range(13))
-        assert '尚未比較' in matrix.table.item(0,0).toolTip()
+        assert '無對應策略資料' in matrix.table.item(0,0).toolTip()
         matrix.apply_colors('#123456','#abcdef')
         assert not matrix.isEnabled()
-        assert matrix.table.item(0,0).background().color().name()=='#123456'
+        assert matrix.table.item(0,0).background().color().name()=='#34373b'
         matrix.render(['8h','7h'],['9d','5d','Qs'])
         assert matrix.isEnabled()
         assert matrix.table.item(0,0).background().color().name()=='#abcdef'

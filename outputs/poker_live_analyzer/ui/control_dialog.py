@@ -32,7 +32,7 @@ class ControlDialog(QDialog):
                     check=QCheckBox(label)
                     self.fields[key]=check
                     form.addRow(check)
-                for key,label in [('win_color','勝率'),('tie_color','平手'),('call_color','跟注'),('fold_color','棄牌'),('check_color','過牌'),('wait_color','等待確認'),('matrix_background','牌型矩陣底色'),('matrix_winner','能贏我的牌：標示色')]:
+                for key,label in [('win_color','勝率'),('tie_color','平手'),('call_color','跟注'),('fold_color','棄牌'),('check_color','過牌'),('wait_color','等待確認'),('matrix_background','翻後矩陣底色'),('matrix_winner','翻後能贏我的牌')]:
                     button=QPushButton('選擇顏色')
                     button.clicked.connect(lambda checked=False,k=key:self.choose_color(k))
                     self.colors[key]=button
@@ -55,6 +55,17 @@ class ControlDialog(QDialog):
                 note=QLabel('先給快速結果，再提升到選定精度。\n範圍會影響勝率；下注比例是試算，不是完整最佳策略。')
                 note.setWordWrap(True)
                 form.addRow(note)
+        page=QWidget()
+        preflop_form=QFormLayout(page)
+        for key,label in [('preflop_background','未確認底色'),('preflop_raise','加注'),('preflop_call','跟注'),('preflop_fold','棄牌'),('preflop_check','過牌')]:
+            button=QPushButton('選擇顏色')
+            button.clicked.connect(lambda checked=False,k=key:self.choose_color(k))
+            self.colors[key]=button
+            preflop_form.addRow(label,button)
+        note=QLabel('翻前圖表依位置與適用條件顯示，文字固定白色。\n灰色表示尚無對應資料；混合策略依頻率分段顯色。\n自己的底牌使用金色框，翻後切回牌型比較。')
+        note.setWordWrap(True)
+        preflop_form.addRow(note)
+        tabs.addTab(page,'翻前圖表配色')
         page=QWidget()
         calibration_layout=QVBoxLayout(page)
         note=QLabel('一、選擇牌桌，更新預覽。\n二、選擇讀不到的欄位，在預覽上拖曳框選。\n三、驗證讀取正確後，鎖定並儲存。\n\n只需框選需要修正的位置；其他欄位沿用自動定位。\n對手牌背請先設為綠色，金額請使用籌碼顯示。')

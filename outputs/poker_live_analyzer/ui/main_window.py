@@ -206,7 +206,7 @@ class MainWindow(QMainWindow):
         self.simple_form = SimpleHandForm()
         self.simple_form.load_data(demo_data())
         self.simple_form.edited.connect(self.form_edited)
-        self.analysis = AnalysisPanel()
+        self.analysis = AnalysisPanel(preflop_path=self.data_dir/'ranges'/'mtt-preflop.json')
         self.analysis.dark_theme=True
         self.analysis.enable_fixed_layout()
         self.analysis.layout().removeWidget(self.analysis.card_strip)
@@ -702,6 +702,8 @@ class MainWindow(QMainWindow):
             self.vision_worker.amounts.connect(lambda result: self.accept_auto_amounts(token, result))
             self.vision_worker.view.connect(lambda result: self.accept_auto_view(token, result))
             self.vision_worker.equity_view.connect(lambda result:self.accept_equity_view(token,result))
+            if hasattr(self.vision_worker,'preflop'):
+                self.vision_worker.preflop.connect(lambda result:self.accept_preflop_context(token,result))
             self.vision_worker.unavailable.connect(lambda message: self.accept_auto_unavailable(token, message))
             self.vision_worker.status.connect(lambda message: self.accept_auto_status(token, message))
             self.vision_worker.timing.connect(lambda milliseconds: self.accept_auto_timing(token, milliseconds))
@@ -966,6 +968,18 @@ class MainWindow(QMainWindow):
         self.demo_button.setVisible(True)
         return True
 
+    def accept_preflop_context(self, token, context):
+        """範圍圖表直接更新，不排隊等待勝率計算。"""
+        if token != self.auto_generation or not self.auto_active:return
+        if not self.check_live_freshness():return
+        self.analysis.current_preflop_context=dict(context or {})
+        if not context:
+            self.analysis.threat_matrix.render_preflop({})
+        elif context.get('community_cards'):
+            self.analysis.threat_matrix.render(context.get('hero_cards',[]),context['community_cards'])
+        else:
+            self.analysis.threat_matrix.render_preflop(context)
+
     def accept_auto_table(self, token, observation):
         if token != self.auto_generation or not self.auto_active:
             return
@@ -1123,6 +1137,8 @@ class MainWindow(QMainWindow):
         self.result['pot']=self.detector.state.pot
         self.result['hero_cards']=list(self.detector.state.hero_cards)
         self.result['community_cards']=list(self.detector.state.community_cards)
+        self.result['preflop_context']=self.detector.state.decision_context.get('preflop',
+            {'hero_cards':list(self.detector.state.hero_cards)})
         self.result['target_simulations']=self.control_options['iterations']
         if self.detector.state is not None:
             from dataclasses import asdict

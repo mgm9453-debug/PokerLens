@@ -24,6 +24,7 @@ class VisionWorker(QThread):
     equity_view = Signal(object)
     unavailable = Signal(str)
     frame_received = Signal(float)
+    preflop = Signal(object)
 
     def __init__(self, handle, parent=None, diagnostic_path=None, calibration=None):
         super().__init__(parent)
@@ -82,6 +83,11 @@ class VisionWorker(QThread):
             detector, players_detector, money_detector = build_detectors(self.calibration)
             detector_signature = self.calibration.signature if calibration_active(self.calibration) else None
             assembler = LiveStateAssembler()
+            from vision.position_detector import DealerDetector
+            dealer_detector = DealerDetector(getattr(money_detector,'ocr',None))
+            last_dealer_scan = 0
+            confirmed_dealer = None
+            empty_counts = {}
             loop = asyncio.new_event_loop()
             player_key, player_count = None, 0
             hero_key, hero_count = None, 0
@@ -117,6 +123,9 @@ class VisionWorker(QThread):
                         player_key, player_count = None, 0
                         hero_key, hero_count = None, 0
                         assembler.waiting()
+                        dealer_detector = DealerDetector(money_detector.ocr)
+                        confirmed_dealer = None
+                        empty_counts.clear()
                     if calibration_active(self.calibration):
                         compatible = False
                         self.calibration.assert_compatible((frame.shape[1], frame.shape[0]))
@@ -153,6 +162,37 @@ class VisionWorker(QThread):
                     if received is not None and time.monotonic()-received>2:
                         raise RuntimeError('本次辨識影格已逾期，舊建議已撤回')
                     self.amounts.emit(amounts)
+                    if not detection.hero and detection.reliable:
+                        assembler.waiting()
+                        dealer_detector.reset()
+                        confirmed_dealer = None
+                    elif detection.reliable and stable.count >= 3 and players.reliable:
+                        tracked=assembler.position_tracker
+                        if tracked.hero is not None and (tracked.hero != tuple(detection.hero)
+                                or (tracked.board and not detection.board)):
+                            assembler.waiting()
+                            dealer_detector.reset()
+                            confirmed_dealer=None
+                            last_dealer_scan=0
+                        if perf_counter()-last_dealer_scan >= .5:
+                            confirmed_dealer = loop.run_until_complete(dealer_detector.detect(frame, players_detector.seat_layout))
+                            last_dealer_scan = perf_counter()
+                        from vision.table_detector import crop, empty_bet_evidence
+                        empty = []
+                        for seat, roi in getattr(money_detector,'stack_rois',{}).items():
+                            vacant = (seat != 0 and seat not in players.active_seats
+                                and seat not in amounts.seat_stacks and seat not in amounts.all_in_seats
+                                and amounts.field_reliable.get(f'bet_{seat}', False)
+                                and amounts.seat_bets.get(seat) == 0
+                                and empty_bet_evidence(crop(frame, roi)))
+                            empty_counts[seat] = empty_counts.get(seat, 0)+1 if vacant else 0
+                            if empty_counts[seat] >= 3:empty.append(seat)
+                        position_context = assembler.observe_position(detection, players, amounts,
+                            confirmed_dealer, blinds, empty)
+                        if received is None or time.monotonic()-received <= 2:
+                            self.preflop.emit(position_context)
+                        else:
+                            raise RuntimeError('位置辨識影格已逾期，等待新畫面')
                     if players.reliable and player_count >= 3:
                         self.view.emit({'amounts': amounts, 'players': players,
                             'hero_active': bool(detection.hero) if detection.reliable and stable.count>=3 else None})
@@ -202,6 +242,11 @@ class VisionWorker(QThread):
                     self.unavailable.emit(message)
                     self.hero_view.emit({'hero': None, 'board': None})
                     self.equity_view.emit(None)
+                    self.preflop.emit(None)
+                    assembler.waiting()
+                    dealer_detector.reset()
+                    confirmed_dealer = None
+                    empty_counts.clear()
                     if self.diagnostic_path:
                         self._write_diagnostic({'timestamp': time.time(), 'window_handle': self.handle,
                             'window_title': selected.title if selected else '',

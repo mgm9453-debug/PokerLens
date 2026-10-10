@@ -8,6 +8,8 @@ DEFAULTS={'probability_font':32,'action_font':30,'text_font':20,'refresh_ms':100
     'game_mode':'tournament','rake_known':False,'rake_percent':5,'rake_cap':0,
     'bounty_active':False,'bounty_known':False,'bounty_average':0,
     'matrix_background':'#00cc66','matrix_winner':'#ef4444',
+    'preflop_background':'#34373b','preflop_raise':'#9d2638','preflop_call':'#087553',
+    'preflop_fold':'#182333','preflop_check':'#655124',
     'win_color':'#087d55','tie_color':'#7045b4','call_color':'#087d55',
     'fold_color':'#c42b36','check_color':'#1765aa','wait_color':'#9a6500'}
 LIMITS={'probability_font':(24,48),'action_font':(24,44),'text_font':(14,26),'refresh_ms':(100,1000)}

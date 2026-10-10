@@ -36,13 +36,14 @@ class SummaryScrollArea(QScrollArea):
 
 
 class AnalysisPanel(QWidget):
-    def __init__(self):
+    def __init__(self,preflop_path=None):
         super().__init__()
         self.display_options={}
         self.dark_theme=False
         self.fixed_layout=False
         self._view_scale=1.0
         layout = QVBoxLayout(self)
+        layout.setSpacing(4)
         heading = QLabel('分析結果')
         heading.setStyleSheet('font-size: 20px; font-weight: bold; color: #203b50;')
         layout.addWidget(heading)
@@ -91,7 +92,7 @@ class AnalysisPanel(QWidget):
         self.board_picture=QLabel()
         layout.addWidget(self.card_strip)
         from .threat_matrix import ThreatMatrix
-        self.threat_matrix=ThreatMatrix()
+        self.threat_matrix=ThreatMatrix(preflop_path)
         self.summary = QLabel('選好牌、填好金額後，按「分析」。')
         self.summary.setWordWrap(True)
         self.summary.setAlignment(Qt.AlignTop|Qt.AlignLeft)
@@ -239,7 +240,7 @@ class AnalysisPanel(QWidget):
             self.probabilities.setFixedHeight(round(92*scale))
             self.issue_label.setFixedHeight(round(72*scale))
             self.sizing_label.setFixedHeight(round(58*scale))
-            self.layout().setSpacing(round(5*scale))
+            self.layout().setSpacing(round(3*scale))
             self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
         self.summary_layout.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
@@ -264,7 +265,14 @@ class AnalysisPanel(QWidget):
         if hero:
             from .threat_matrix import card_names
             self.card_text.setText(f'底牌已確認：{card_names(hero)}\n公共牌：{card_names(board) or "尚未翻牌"}')
-        self.threat_matrix.render(hero,board)
+        if len(hero)==2 and not board:
+            context=result.get('preflop_context') or {}
+            previous=getattr(self,'current_preflop_context',{})
+            if not context and result.get('live') and previous.get('hero_cards')==hero:
+                context=previous
+            self.threat_matrix.render_preflop(context or {'hero_cards':hero})
+        else:
+            self.threat_matrix.render(hero,board)
         self.clear_threat_pictures()
         self.footer.setVisible(not result.get('live',False))
         self.heading.setVisible(not result.get('live',False))
@@ -480,6 +488,7 @@ class AnalysisPanel(QWidget):
     def apply_display_options(self,options):
         self.display_options=dict(options)
         self.threat_matrix.apply_colors(options.get('matrix_background','#00cc66'),options.get('matrix_winner','#ef4444'))
+        self.threat_matrix.apply_preflop_colors(options)
         font=round(options.get('probability_font',32)*self._view_scale)
         self.win_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("win_color","#087d55")}; background: #e5f6ee; padding: 10px;')
         self.tie_label.setStyleSheet(f'font-size: {font}px; font-weight: bold; color: {options.get("tie_color","#7045b4")}; background: #f0eafa; padding: 10px;')

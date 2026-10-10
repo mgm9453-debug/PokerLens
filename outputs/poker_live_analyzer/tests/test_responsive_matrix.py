@@ -29,6 +29,11 @@ def test_matrix_remains_fully_visible_at_allowed_sizes(tmp_path):
             assert previous.height()>=previous.heightForWidth(previous.width())
             assert table.rowCount()==table.columnCount()==13
             assert all(table.item(row,column) is not None for row in range(13) for column in range(13))
+            window.analysis.threat_matrix.render_preflop({'position':'UTG+1',
+                'hero_cards':['As','Ks'],'stack_bb':40,'scenario':'vs_open'})
+            for _ in range(8):app.processEvents()
+            bottom=table.mapTo(window.main_scroll.viewport(),QPoint(0,table.height()))
+            assert bottom.y()<=window.main_scroll.viewport().height()
         window.resize(300,300)
         app.processEvents()
         assert window.width()>=640 and window.height()>=900
