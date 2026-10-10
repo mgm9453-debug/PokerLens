@@ -68,7 +68,13 @@ class PokerTableState:
     fold_probability: float = 0.0
     hero_turn: bool | None = None
     decision_context: dict = field(default_factory=dict)
+    amount_unit: str = '籌碼'
+    amount_resolution: dict[str, float] = field(default_factory=dict)
     def __post_init__(self):
+        from poker.amount_units import rounding_budget, validate_resolutions
+        if self.amount_unit not in ('BB', '籌碼'): raise ValueError('金額單位不支援')
+        validate_resolutions(self.amount_resolution)
+        if self.amount_unit == 'BB' and self.big_blind != 1: raise ValueError('大盲數模式的大盲基準須為一')
         if self.community_cards is not None: self.board=list(self.community_cards)
         self.community_cards=list(self.board)
         if self.dealer_position is not None: self.dealer_seat=self.dealer_position
@@ -91,7 +97,7 @@ class PokerTableState:
             else: known.extend(p.hole_cards)
         validate_cards(known)
         for name,label in (('pot','底池'),('call_amount','跟注額'),('effective_stack','有效籌碼'),('hero_stack','英雄籌碼'),('small_blind','小盲注'),('big_blind','大盲注'),('timestamp','時間戳')): nonnegative(getattr(self,name),label)
-        if self.pot+1e-9<sum(p.current_bet for p in self.players): raise ValueError('底池不可小於所有玩家目前下注總和')
+        if self.pot+(rounding_budget(self.amount_unit,self.amount_resolution,'pot',*[f'bet_{p.seat}' for p in self.players]) if self.amount_unit=='BB' else 1e-9)<sum(p.current_bet for p in self.players): raise ValueError('底池不可小於所有玩家目前下注總和')
         if self.hero_stack and (self.effective_stack>self.hero_stack or self.call_amount>self.hero_stack): raise ValueError('有效籌碼與跟注額不可超過英雄籌碼')
         from poker.pot_odds import probability
         probability(self.fold_probability)

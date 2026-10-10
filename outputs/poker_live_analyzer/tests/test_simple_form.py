@@ -45,7 +45,7 @@ def test_form_can_clear_and_load_demo(app):
     form = SimpleHandForm()
     form.load_data(demo_data())
     assert form.hero[0].text() == 'A♠'
-    assert form.pot.value() == 2000
+    assert form.pot.value() == 20
     form.clear()
     assert all(button.card is None for button in form.hero + form.board)
     assert form.pot.value() == 0
@@ -79,10 +79,10 @@ def test_simple_analysis_preserves_advanced_player_details(app):
     form = SimpleHandForm()
     form.load_data(data)
     result = form.to_data()
-    assert result['small_blind'] == 50
+    assert result['small_blind'] == .5
     assert result['dealer_position'] == 2
     assert result['players'][1]['name'] == '對手甲'
-    assert result['players'][1]['total_invested'] == 900
+    assert result['players'][1]['total_invested'] == 9
 
 
 def test_user_can_select_card_from_dialog(app):

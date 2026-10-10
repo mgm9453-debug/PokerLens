@@ -68,7 +68,7 @@ class ControlDialog(QDialog):
         tabs.addTab(page,'翻前圖表配色')
         page=QWidget()
         calibration_layout=QVBoxLayout(page)
-        note=QLabel('一、選擇牌桌，更新預覽。\n二、選擇讀不到的欄位，在預覽上拖曳框選。\n三、驗證讀取正確後，鎖定並儲存。\n\n只需框選需要修正的位置；其他欄位沿用自動定位。\n對手牌背請先設為綠色，金額請使用籌碼顯示。')
+        note=QLabel('一、選擇牌桌，更新預覽。\n二、選擇讀不到的欄位，在預覽上拖曳框選。\n三、驗證讀取正確後，鎖定並儲存。\n\n只需框選需要修正的位置；其他欄位沿用自動定位。\n對手牌背請先設為綠色，金額請使用大盲數顯示。')
         note.setWordWrap(True)
         calibration_layout.addWidget(note)
         self.calibration_button=QPushButton('框選與校準辨識位置')

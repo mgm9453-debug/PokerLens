@@ -1,3 +1,4 @@
+from poker.amount_units import format_amount
 from PySide6.QtCore import Qt,Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel,QPushButton
 
@@ -41,9 +42,9 @@ class TableOverlay(QWidget):
         pot=state.get('pot',0)
         self.label.setText(result.get('action_text') or ('不用補錢｜行動待確認' if call==0 else '跟注估算待確認'))
         win=result.get('equity_details',{}).get('win_probability')
-        ratio=f'{call/pot:.0%}' if pot>0 else '待確認'
+        ratio=format(call/pot,'.1%' if state.get('amount_unit')=='BB' else '.0%') if pot>0 else '待確認'
         probability=f'勝率 {win:.1%}' if win is not None else '勝率待確認'
-        self.details.setText(f'{probability}　平手 {result.get("tie_probability",0):.1%}\n底池 {pot:,.0f}　需跟注 {call:,.0f}｜底池 {ratio}\n'+result.get('sizing_advice','加注建議：位置與加注歷史待確認'))
+        self.details.setText(f'{probability}　平手 {result.get("tie_probability",0):.1%}\n底池 {format_amount(pot,state.get('amount_unit','籌碼'))}　需跟注 {format_amount(call,state.get('amount_unit','籌碼'))}｜底池 {ratio}\n'+result.get('sizing_advice','加注建議：位置與加注歷史待確認'))
         self.adjustSize()
 
     def invalidate(self,message):

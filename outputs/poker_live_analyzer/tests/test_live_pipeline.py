@@ -35,6 +35,21 @@ def test_live_pipeline_needs_no_analysis_click(tmp_path,monkeypatch,filename,her
         def open(self): pass
         def read(self): return frame.copy()
         def close(self): pass
+    from vision.ocr_engine import NativeOcrEngine
+    from vision.calibrated_detection import build_detectors
+    class BbFixtureReader(NativeOcrEngine):
+        def parse_value(self,text):
+            # 匿名舊樣本是籌碼畫面；只在測試中按已知盲注轉成大盲數來源。
+            value=super().parse_value(text)
+            if value is not None:
+                self.bb_display=True
+                self.last_resolution/=100
+                return value/100
+            return None
+    def detectors(profile):
+        return build_detectors(profile,ocr=BbFixtureReader())
+    monkeypatch.setattr('vision.worker.build_detectors',detectors)
+    pot/=100;call/=100
     monkeypatch.setattr('vision.worker.WindowCapture',Capture)
     monkeypatch.setattr('ui.main_window.list_tables',lambda:[TableWindow(1,'盲注50/100',(0,0,1128,799))])
     app=QApplication.instance() or QApplication([])
@@ -47,6 +62,7 @@ def test_live_pipeline_needs_no_analysis_click(tmp_path,monkeypatch,filename,her
             if window.result: break
         assert window.result is not None,window.auto_status.text()
         assert window.result['live']
+        assert window.result['amount_unit']=='BB' and window.detector.state.big_blind==1
         assert window.detector.state.hero_cards==hero
         assert window.detector.state.pot==pot
         assert window.result['call_amount']==call

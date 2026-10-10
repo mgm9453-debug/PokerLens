@@ -331,7 +331,7 @@ def test_waiting_has_one_problem_panel_and_actionable_solution(app):
     assert panel.summary_scroll.isHidden()
     panel.invalidate('缺少必要金額，等待辨識：跟注額')
     assert '跟注額' in panel.issue_label.text()
-    assert '籌碼顯示' in panel.issue_label.text()
+    assert '大盲數顯示' in panel.issue_label.text()
     panel.render({'live':True,'call_amount':0,'hero_cards':['As','Ks'],'community_cards':[]})
     assert panel.issue_label.isHidden()
     assert not panel.action_label.isHidden()

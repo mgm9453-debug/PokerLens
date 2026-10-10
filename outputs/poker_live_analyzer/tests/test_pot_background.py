@@ -51,11 +51,12 @@ def test_bb_notice_is_independent_of_complete_amounts(tmp_path):
     window.auto_active=True
     window.accept_auto_amounts(window.auto_generation,
         TableAmounts(None,None,None,{},False,'等待',1,bb_display=True))
-    assert '請切換成籌碼顯示' in window.amount_unit_notice.text()
-    assert not window.amount_unit_notice.isHidden()
+    assert '籌碼顯示' not in window.amount_unit_notice.text()
+    assert window.amount_unit_notice.isHidden()
     window.accept_auto_amounts(window.auto_generation,
         TableAmounts(None,None,None,{},False,'等待',1))
-    assert window.amount_unit_notice.isHidden()
+    assert not window.amount_unit_notice.isHidden()
+    assert '大盲數顯示' in window.amount_unit_notice.text()
     window.close()
 
 

@@ -35,8 +35,9 @@ class LiveStateAssembler:
         seats = set(getattr(amounts, 'seats', range(8)))
         complete = seats <= occupied | (set(empty_seats) - occupied)
         context = self.position_tracker.observe(cards.hero, cards.board, occupied, dealer, complete)
-        self.blinds = blinds
-        big = blinds[1] if blinds else None
+        bb_mode=getattr(amounts,'amount_unit','籌碼')=='BB'
+        self.blinds = (blinds[0]/blinds[1],1) if bb_mode and blinds else (None if bb_mode else blinds)
+        big = 1 if bb_mode else blinds[1] if blinds else None
         context.update(format='MTT', hero_cards=list(cards.hero), community_cards=list(cards.board),
             stack_bb=None, ante_bb=None, ante_type=None, payout_model=None,
             scenario=None, open_bb=None, opponent_position=None)
@@ -65,6 +66,10 @@ class LiveStateAssembler:
         partial=bool(getattr(amounts,'core_reliable',False))
         if not amounts.reliable and not partial:
             raise ValueError(amounts.reason or '金額尚未確認')
+        from poker.amount_units import rounding_budget, validate_resolutions, format_amount
+        unit=getattr(amounts,'amount_unit','籌碼')
+        resolutions=getattr(amounts,'amount_resolution',{})
+        validate_resolutions(resolutions)
         fields = getattr(amounts, 'field_reliable', {})
         if partial and any(getattr(amounts,key,None) is None or not fields.get(key,False)
                 for key in ('pot','hero_stack','call_amount')):
@@ -77,10 +82,12 @@ class LiveStateAssembler:
         bets={seat:value for seat,value in amounts.seat_bets.items()
             if seat in seats and (not partial or fields.get(f'bet_{seat}',False))}
         if set(players.active_seats)|{0} <= set(bets):
-            highest = max(bets[s] for s in players.active_seats)
+            highest_seat = max(players.active_seats,key=lambda s:bets[s])
+            highest = bets[highest_seat]
             expected = min(amounts.hero_stack, max(0, highest-bets[0]))
-            if abs(expected-amounts.call_amount) > .01:
-                raise ValueError(f'跟注金額不一致：按鈕 {amounts.call_amount:,.0f}、計算差額 {expected:,.0f}（最高下注 {highest:,.0f}、自己已下 {bets[0]:,.0f}）')
+            tolerance=rounding_budget(unit,resolutions,'call_amount','hero_stack') if expected==amounts.hero_stack else rounding_budget(unit,resolutions,'call_amount','bet_0',f'bet_{highest_seat}')
+            if abs(expected-amounts.call_amount) > tolerance:
+                raise ValueError(f'跟注金額不一致：按鈕 {format_amount(amounts.call_amount,unit)}、計算差額 {format_amount(expected,unit)}（最高下注 {format_amount(highest,unit)}、自己已下 {format_amount(bets[0],unit)}）')
         new_hand = self.waiting_seen or self.previous_cards != cards.hero or (self.previous_board and not cards.board)
         hand_id = uuid4().hex if new_hand else self.hand_id
         stacks = {s: value for s, value in getattr(amounts, 'seat_stacks', {}).items()
@@ -96,7 +103,8 @@ class LiveStateAssembler:
             hero_stack=amounts.hero_stack, effective_stack=effective,
             dealer_seat=self.position_context.get('dealer_seat'),
             small_blind=self.blinds[0] if self.blinds else 0,
-            big_blind=self.blinds[1] if self.blinds else 0,
+            big_blind=1 if unit=='BB' else self.blinds[1] if self.blinds else 0,
+            amount_unit=unit,amount_resolution=resolutions,
             decision_context={'preflop': self.position_context},
             hero_turn=getattr(amounts,'hero_turn',None),
             players=[{'seat': s, 'stack': stacks.get(s, 0), 'stack_known': s in stacks, 'current_bet': bets.get(s,0),'bet_known':s in bets,

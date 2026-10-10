@@ -138,7 +138,8 @@ class VisionWorker(QThread):
                             raise RuntimeError('牌桌影格已逾期，暫停使用舊畫面')
                         last_received=received
                     self.frame_received.emit(received if received is not None else time.monotonic())
-                    money_detector.ocr.big_blind=blinds[1] if blinds else None
+                    money_detector.ocr.big_blind=1
+                    money_detector.ocr.amount_unit='BB'
                     detection = detector.detect(frame)
                     current_hero = detection.hero if detection.hero_reliable and detection.hero_confidence>=.85 else None
                     hero_count = hero_count+1 if current_hero is not None and current_hero==hero_key else (1 if current_hero is not None else 0)

@@ -25,6 +25,10 @@ def _coordinates(region):
 
 
 def build_detectors(profile=None, require_locked=True, ocr=None):
+    if ocr is None:
+        from vision.ocr_engine import NativeOcrEngine
+        ocr=NativeOcrEngine(big_blind=1)
+        ocr.amount_unit='BB'
     if profile is not None and profile.position_signature and not profile.positions_locked:
         raise ValueError('鎖定位置已變更，請重新確認位置')
     if profile is not None and profile.locked and not profile.verified:
@@ -104,7 +108,8 @@ async def _read_field(key, frame, roi, cards, players, money):
             chips = crop(frame, chip_roi)
             if (not chip_evidence(chips) and empty_bet_evidence(chips) and empty_bet_evidence(image)) or textured_empty_bet(image, chips):
                 value = 0.0
-    return format(value, 'g') if value is not None else None
+    if value is None: return None
+    return format(value, 'g') + (' BB' if getattr(money.ocr,'amount_unit','籌碼')=='BB' else '')
 
 
 def omit_inactive_seat_errors(readings, errors):
@@ -113,7 +118,7 @@ def omit_inactive_seat_errors(readings, errors):
     for key in tuple(result):
         if key.startswith('stack_'):
             seat=key.split('_')[1]
-            if readings.get('back_'+seat)=='已確認無牌背' and readings.get('bet_'+seat)=='0':
+            if readings.get('back_'+seat)=='已確認無牌背' and readings.get('bet_'+seat) in ('0','0 BB'):
                 result.pop(key)
     return result
 

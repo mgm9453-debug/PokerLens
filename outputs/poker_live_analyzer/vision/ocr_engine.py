@@ -39,6 +39,8 @@ def unique_amount(texts,big_blind=None):
 class NativeOcrEngine:
     def __init__(self,language='en-US',big_blind=None):
         self.big_blind=big_blind
+        self.amount_unit='籌碼'
+        self.last_resolution=0
         self.bb_display=False
         self.engine=None
         self.reason=''
@@ -49,6 +51,22 @@ class NativeOcrEngine:
             if self.engine is None: self.reason='原生文字辨識語言未安裝'
         except (ImportError,OSError,RuntimeError) as exc:
             self.reason='原生文字辨識不可用：'+str(exc)
+
+    def parse_value(self, text):
+        value = parse_amount(text, 1 if getattr(self, 'amount_unit', '籌碼') == 'BB' else self.big_blind)
+        self.last_resolution = 0
+        if value is not None and getattr(self, 'amount_unit', '籌碼') == 'BB':
+            match = re.search(r'\d+(?:\.(\d+))?', unicodedata.normalize('NFKC', text))
+            self.last_resolution = 10 ** -len(match[1]) if match and match[1] else 1
+        return value
+
+    def unique_value(self, texts):
+        candidates = [(value, self.last_resolution) for text in texts if (value := self.parse_value(text)) is not None]
+        if candidates and len({value for value, _ in candidates}) == 1:
+            self.last_resolution = min(resolution for _, resolution in candidates)
+            return candidates[0][0]
+        self.last_resolution = 0
+        return None
 
     async def recognize(self,image):
         if self.engine is None: return OcrText('',False,self.reason)
@@ -78,12 +96,12 @@ class NativeOcrEngine:
         expanded=cv2.resize(image,None,fx=3,fy=3,interpolation=cv2.INTER_CUBIC)
         text=await self.recognize(expanded)
         self.bb_display=self.bb_display or bool(re.search(r'BB\b',text.text,re.I))
-        value=parse_amount(text.text,self.big_blind) if text.available else None
+        value=self.parse_value(text.text) if text.available else None
         if value is None and text.available and text.text:
             # 不把錯讀的字母改成數字，改以另一種縮放重新讀原始筆畫。
             alternate=await self.recognize(cv2.resize(image,None,fx=3,fy=3,interpolation=cv2.INTER_LINEAR))
             self.bb_display=self.bb_display or bool(re.search(r'BB\b',alternate.text,re.I))
-            value=parse_amount(alternate.text,self.big_blind) if alternate.available else None
+            value=self.parse_value(alternate.text) if alternate.available else None
         if value is None:
             # 用亮度對比處理文字，不依賴桌布的藍、綠、紫或木紋色相。
             gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY) if image.ndim==3 else image
@@ -95,13 +113,14 @@ class NativeOcrEngine:
                 result=await self.recognize(cv2.resize(prepared,None,fx=3,fy=3,interpolation=cv2.INTER_LINEAR))
                 self.bb_display=self.bb_display or bool(re.search(r'BB\b',result.text,re.I))
                 if result.available: texts.append(result.text)
-            value=unique_amount(texts,self.big_blind)
+            value=self.unique_value(texts)
         return value
 
     async def read_pot_amount(self,image):
         """先讀原圖，再隔離常見底池文字筆畫；不把桌布色當成底池。"""
         value=await self.read_amount(image)
         if image is None or not image.size: return None
+        fallback_resolution=self.last_resolution
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
         texts=[]
         for threshold in (160,180):
@@ -112,7 +131,8 @@ class NativeOcrEngine:
             texts.append(text.text.strip(' :：'))
             self.bb_display=self.bb_display or bool(re.search(r'BB\b',text.text,re.I))
         # 有效候選必須一致；不同處理得到不同金額時不採用。
-        isolated=unique_amount(texts,self.big_blind)
+        isolated=self.unique_value(texts)
+        if isolated is None: self.last_resolution=fallback_resolution
         return isolated if isolated is not None else value
 
     async def read_amount_matching(self,image,expected):
@@ -120,14 +140,17 @@ class NativeOcrEngine:
         if image is None or not image.size:return None
         gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY) if image.ndim==3 else image
         binary=cv2.threshold(gray,0,255,cv2.THRESH_BINARY|cv2.THRESH_OTSU)[1]
-        matches=0
+        matches=[]
         for prepared in (gray,binary,255-binary):
             prepared=cv2.copyMakeBorder(prepared,10,10,10,10,cv2.BORDER_CONSTANT,value=int(prepared[0,0]))
             result=await self.recognize(cv2.resize(prepared,None,fx=3,fy=3,interpolation=cv2.INTER_LINEAR))
             self.bb_display=self.bb_display or bool(re.search(r'BB\b',result.text,re.I))
-            value=parse_amount(result.text,self.big_blind) if result.available else None
-            if value is not None and abs(value-expected)<=.01:matches+=1
-        return expected if matches>=2 else None
+            value=self.parse_value(result.text) if result.available else None
+            if value is not None and abs(value-expected)<=.01:matches.append((value,self.last_resolution))
+        if len(matches)>=2 and len({value for value,_ in matches})==1:
+            self.last_resolution=min(resolution for _,resolution in matches)
+            return matches[0][0]
+        return None
 
     async def locate_pot(self,image):
         """移位底池只採用帶有底池標籤的文字區，避免抓到下注與籌碼。"""
@@ -155,5 +178,9 @@ class NativeOcrEngine:
                     english=await self.recognize(resized)
                     if not re.search(r'\bpot\b',english.text,re.I): continue
                 value=await self.read_pot_amount(region)
-                if value is not None: candidates.append(value)
-        return candidates[0] if candidates and len(set(candidates))==1 else None
+                if value is not None: candidates.append((value,self.last_resolution))
+        if candidates and len({value for value,_ in candidates})==1:
+            self.last_resolution=min(resolution for _,resolution in candidates)
+            return candidates[0][0]
+        self.last_resolution=0
+        return None

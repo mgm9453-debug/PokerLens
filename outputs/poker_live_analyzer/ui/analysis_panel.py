@@ -1,3 +1,4 @@
+from poker.amount_units import format_amount
 from PySide6.QtCore import Qt, QEvent, QRect, QTimer
 from datetime import datetime, timezone, timedelta
 from html import escape
@@ -124,7 +125,7 @@ class AnalysisPanel(QWidget):
         details_layout.addWidget(self.extra)
         details_layout.addWidget(self.threat_pictures)
         self.scenarios = QTableWidget(0, 6)
-        self.scenarios.setHorizontalHeaderLabels(['底池比例', '下注額', '被跟注後底池', '對手所需勝率', '剩餘籌碼底池比', '期望值'])
+        self.scenarios.setHorizontalHeaderLabels(['底池比例', '下注額', '被跟注後底池', '對手所需勝率', '剩餘大盲與底池比', '期望值'])
         self.scenarios.horizontalHeader().setStretchLastSection(True)
         details_layout.addWidget(self.scenarios)
         note = QLabel('情境假設：一位對手跟注，棄牌率由設定提供。\n補牌為提升自身牌型類別的下一張牌，並非保證勝出的補牌。\n數學情境不代表保證獲利或決策正確。')
@@ -193,7 +194,7 @@ class AnalysisPanel(QWidget):
     def unavailable_sizing(self,message):
         if '底牌' in message or '尚未發牌' in message:return '目前下注：等待發牌，底牌尚未確認'
         if '輪到' in message or '回合' in message:return '目前下注：尚未確認輪到自己'
-        fields=[label for words,label in ((('跟注','call'),'跟注金額'),(('底池',),'底池金額'),(('籌碼',),'籌碼'),(('下注額',),'各座下注')) if any(word in message for word in words)]
+        fields=[label for words,label in ((('跟注','call'),'跟注金額'),(('底池',),'底池金額'),(('籌碼','大盲數'),'剩餘大盲數'),(('下注額',),'各座下注')) if any(word in message for word in words)]
         if fields:return '目前下注：尚未確認'+'、'.join(fields)
         if '逾期' in message:return '目前下注：畫面資料已逾期，等待新資料'
         if '背景計算' in message:return '目前下注：正在依新資料計算'
@@ -253,6 +254,7 @@ class AnalysisPanel(QWidget):
         super().resizeEvent(event)
 
     def render(self, result):
+        money=lambda value,signed=False:format_amount(value,result.get('amount_unit','籌碼'),signed)
         if not result.get('equity_only') and 'ev' in result:
             self.last_issue_message=''
         self.issue_label.setVisible(self.fixed_layout)
@@ -292,7 +294,7 @@ class AnalysisPanel(QWidget):
             f"這次跟注至少要有 {result.get('required_equity', result.get('pot_odds', 0)):.2%} 的分錢比例才划算。\n\n"
             f"下一張能讓牌型變好的牌：{result.get('outs', 0)} 張，不一定會贏。"
         )
-        self.extra.setText(f"對手合計權益：{result.get('opponent_equity', 0):.2%}　平手機率：{result.get('tie_probability', 0):.2%}\n籌碼底池比：{format(result['spr'], '.2f') if result.get('spr') is not None else '無法計算'}　模擬次數：{result.get('simulation_count', 0):,}")
+        self.extra.setText(f"對手合計權益：{result.get('opponent_equity', 0):.2%}　平手機率：{result.get('tie_probability', 0):.2%}\n有效大盲與底池比：{format(result['spr'], '.2f') if result.get('spr') is not None else '無法計算'}　模擬次數：{result.get('simulation_count', 0):,}")
         if 'beating_hand_types' in result:
             self.summary.setText(self.summary.text()+f'\n\n{threats_heading}\n{types_text}')
             self.extra.setText(self.extra.text()+f'\n{label}')
@@ -301,41 +303,41 @@ class AnalysisPanel(QWidget):
             call = result.get('call_amount', 0)
             ev=result.get('ev')
             pot=result.get('pot')
-            borderline=call_ev_near_boundary(ev,pot or 0,call,result.get('simulation_count',0))
+            borderline=call_ev_near_boundary(ev,pot or 0,call,result.get('simulation_count',0)) or (call>0 and ev is not None and abs(ev)<=result.get('amount_rounding_ev_bound',0))
             win = result.get('equity_details', {}).get('win_probability', 0)
             if call == 0:
                 reference = '目前較適合：先過牌。\n現在不用補錢。'
             elif borderline:
-                reference=f'需補 {call:,.0f}；估算接近門檻，暫不判定跟注或棄牌。'
+                reference=f'需補 {money(call)}；估算接近門檻，暫不判定跟注或棄牌。'
             elif result.get('ev', 0) > 0:
-                reference = f'目前較適合：跟注 {call:,.0f}。\n照目前估算，這次跟注划得來。'
+                reference = f'目前較適合：跟注 {money(call)}。\n照目前估算，這次跟注划得來。'
             else:
-                reference = f'目前較適合：先棄牌。\n要再補 {call:,.0f}，照目前估算不划算。'
+                reference = f'目前較適合：先棄牌。\n要再補 {money(call)}，照目前估算不划算。'
             if result.get('range_assumed'):
                 reference= ('現在不用補錢，可以過牌。' if call==0 else
-                    f'只看目前跟注成本：補 {call:,.0f}，估算'+('接近門檻，暫不判定。' if borderline else '划算。' if result.get('ev',0)>0 else '不划算。'))
+                    f'只看目前跟注成本：補 {money(call)}，估算'+('接近門檻，暫不判定。' if borderline else '划算。' if result.get('ev',0)>0 else '不划算。'))
                 reference+='\n對手手牌範圍尚未從行動確認，不能只靠這個估算決定棄牌。'
             guide=result.get('starting_hand',{})
             if guide:
                 reference=f'起手牌：{guide["level"]}\n{guide["advice"]}\n\n'+reference
             if result.get('stack_unknown'):
-                reference += '\n還看不清楚對手剩多少籌碼，先不建議加注多少。'
+                reference += '\n還看不清楚對手剩多少大盲，先不建議加注多少。'
             elif call == 0:
                 scenarios = result.get('bet_scenarios', [])
                 half = next((row for row in scenarios if row.get('percentage')==50), None)
                 if half:
-                    reference += f'\n下注試算：半個底池 {half["bet"]:,.0f}。\n只假設一人跟注，還沒確認這個金額能否加注。'
+                    reference += f'\n下注試算：半個底池 {money(half["bet"])}。\n只假設一人跟注，還沒確認這個金額能否加注。'
             precision = '先給你大概結果，正在算得更準。' if result.get('simulation_count',0)<result.get('target_simulations',50000) else '已完成這輪估算。'
             stage = result.get('street', '')
             threat_note = '這是最後發完牌的模擬結果。' if preflop else '只看桌上已經開出的牌。'
-            action='過牌' if call==0 else '等待確認｜估算接近門檻' if borderline else f'跟注 {call:,.0f}（成本估算）' if result.get('ev',0)>0 else f'暫不跟注（需補 {call:,.0f}）'
-            ratio=f'｜目前底池 {call/pot:.0%}' if pot and pot>0 else '｜底池待確認'
+            action='過牌' if call==0 else '等待確認｜估算接近門檻' if borderline else f'跟注 {money(call)}（成本估算）' if result.get('ev',0)>0 else f'暫不跟注（需補 {money(call)}）'
+            ratio=('｜目前底池 '+format(call/pot,'.1%' if result.get('amount_unit')=='BB' else '.0%')) if pot and pot>0 else '｜底池待確認'
             if call>0 and borderline:
-                sizing=f'目前下注：需補 {call:,.0f}{ratio}｜估算接近門檻，暫不判定'
+                sizing=f'目前下注：需補 {money(call)}{ratio}｜估算接近門檻，暫不判定'
             elif call>0 and ev is not None and ev>0:
-                sizing=f'目前下注：跟注 {call:,.0f}{ratio}｜依設定的對手範圍估算'
+                sizing=f'目前下注：跟注 {money(call)}{ratio}｜依設定的對手範圍估算'
             elif call>0:
-                sizing=f'目前下注：需補 {call:,.0f}{ratio}｜加注尺寸尚未確認'
+                sizing=f'目前下注：需補 {money(call)}{ratio}｜加注尺寸尚未確認'
             else:
                 sizing='目前下注：可過牌｜加注尺寸待確認（位置、前面行動及合法尺寸）'
             self.sizing_label.setText(sizing)
@@ -344,26 +346,26 @@ class AnalysisPanel(QWidget):
             elif borderline:
                 self.set_action('等待確認｜估算接近邊界','#9a6500')
             elif ev>0:
-                self.set_action(f'依估算建議跟注 {call:,.0f}' if result.get('range_assumed') else f'入場：跟注 {call:,.0f}','#087d55')
+                self.set_action(f'依估算建議跟注 {money(call)}' if result.get('range_assumed') else f'入場：跟注 {money(call)}','#087d55')
             elif result.get('range_assumed'):
-                self.set_action(f'依估算建議棄牌｜需跟注 {call:,.0f}','#c42b36')
+                self.set_action(f'依估算建議棄牌｜需跟注 {money(call)}','#c42b36')
             else:
                 self.set_action('不入場：棄牌','#c42b36')
             self.action_label.setToolTip('依目前辨識資料與假設對手範圍的跟注期望值；未納入後續下注、行動位置及完整獎金結構。')
             # 只使用現有跟注成本模型，不把起手牌圖顏色當作期望值。
             entry=('可免費看牌' if call==0 else '待確認' if ev is None else
                 '邊界，先確認' if borderline else '可考慮入場' if ev>0 else '暫不投入')
-            ev_text='待確認' if ev is None else f'{ev:+,.0f}'
+            ev_text='待確認' if ev is None else f'{money(ev,True)}'
             if call==0:
                 ev_text='無需跟注'
             entry+=f'｜跟注期望值 {ev_text}'
             raise_text='加注：合法金額待確認'
             if result.get('stack_unknown'):
-                raise_text='加注：對手籌碼待確認'
+                raise_text='加注：對手大盲數待確認'
             elif call==0 and result.get('equity',0)>=.6:
                 half=next((row for row in result.get('bet_scenarios',[]) if row.get('percentage')==50),None)
                 if half and half['bet']<=result.get('effective_stack',0):
-                    raise_text=f'下注試算 {half["bet"]:,.0f}｜合法下限待確認'
+                    raise_text=f'下注試算 {money(half["bet"])}｜合法下限待確認'
             self.summary.setText(f'行動參考：{action}\n進場：{entry}\n{raise_text}')
             assumption='｜對手範圍是假設' if result.get('range_assumed') else ''
             if assumption:
@@ -372,16 +374,16 @@ class AnalysisPanel(QWidget):
                 opening={
                     '強起手牌':'未有人加注時可考慮開池；須看位置',
                     '中等口袋對子':'未有人加注時可考慮開池；須看位置與加注',
-                    '小口袋對子':'後位、深籌碼可考慮開池；避免跟大注',
+                    '小口袋對子':'後位、深大盲數可考慮開池；避免跟大注',
                     '大點數起手牌':'中後位可考慮開池；須看位置與加注',
                     '同花發展型起手牌':'後位可考慮開池；避免跟大注',
                 }.get(guide['level'],'起手牌偏弱；先看位置與前面加注')
-                self.summary.setText(f'起手牌：{guide["level"]}｜{opening}\n行動參考：需補 {call:,.0f}｜跟注期望值 {ev_text}{assumption}\n{raise_text}')
+                self.summary.setText(f'起手牌：{guide["level"]}｜{opening}\n行動參考：需補 {money(call)}｜跟注期望值 {ev_text}{assumption}\n{raise_text}')
             chart=guide.get('entry_chart',{}) if result.get('street')=='翻牌前' else {}
             if chart:
                 cost=('不用補錢；加注條件待確認' if call==0 else
                     '跟注估算待確認' if borderline else
-                    f'依估算建議跟注 {call:,.0f}' if ev>0 else f'依估算建議棄牌｜需跟注 {call:,.0f}')
+                    f'依估算建議跟注 {money(call)}' if ev>0 else f'依估算建議棄牌｜需跟注 {money(call)}')
                 color='#1765aa' if call==0 else '#9a6500' if borderline else '#087d55' if ev>0 else '#c42b36'
                 self.set_action('過牌｜不用補錢' if call==0 else cost,color)
                 self.summary.setText(f'使用者牌表：{chart["color"]}｜{chart["rule"]}\n行動參考：{cost}｜跟注期望值 {ev_text}{assumption}\n位置與前面加注待確認；{raise_text}')
@@ -390,8 +392,8 @@ class AnalysisPanel(QWidget):
                     ('對手範圍是假設；位置與加注歷史待確認。' if result.get('range_assumed') else '加注建議：合法尺寸與行動歷史待確認。'))
             self.summary.setStyleSheet('font-size: 20px; padding: 8px; color: #203b50; background: #eff6f3; border-radius: 8px;')
             self.extra.setText(self.extra.text()+f'\n{reference}\n{threat_note}\n{precision}')
-            self.extra.setText(self.extra.text()+'\n跟注期望值單位為籌碼，公式為分池權益×（目前底池＋跟注差額）－跟注差額。假設不再有後續下注；不是完整策略的行動期望值，接近零時不能忽略模擬與範圍誤差。')
-            self.extra.setText(self.extra.text()+f'\n含平手分池權益：{result.get("equity",0):.1%}　跟注所需權益：{result.get("required_equity",0):.1%}\n跟注期望值：{result.get("ev",0):+,.0f}\n各對手範圍分別列舉，未驗證多人同時可行；不是牌型出現機率。')
+            self.extra.setText(self.extra.text()+'\n跟注期望值與輸入使用相同單位，公式為分池權益×（目前底池＋跟注差額）－跟注差額。假設不再有後續下注；不是完整策略的行動期望值，接近零時不能忽略模擬與範圍誤差。')
+            self.extra.setText(self.extra.text()+f'\n含平手分池權益：{result.get("equity",0):.1%}　跟注所需權益：{result.get("required_equity",0):.1%}\n跟注期望值：{money(result.get("ev",0),True)}\n各對手範圍分別列舉，未驗證多人同時可行；不是牌型出現機率。')
             if guide:
                 self.extra.setText(self.extra.text()+f'\n{guide["context"]}\n起手牌資料來源：{guide["source"]}')
                 published=guide.get('published_reference',{})
@@ -410,10 +412,10 @@ class AnalysisPanel(QWidget):
             elif borderline:
                 self.set_action('對手全下｜估算接近邊界，暫不判定','#9a6500')
             elif ev>0:
-                self.set_action(f'對手全下｜依估算建議跟注 {call:,.0f}','#087d55')
+                self.set_action(f'對手全下｜依估算建議跟注 {money(call)}','#087d55')
             else:
                 self.set_action(f'對手全下｜依估算建議棄牌','#c42b36')
-            self.sizing_label.setText(f'目前下注：需補 {call:,.0f}｜跟注門檻 {needed:.1%}｜依設定的對手範圍估算')
+            self.sizing_label.setText(f'目前下注：需補 {money(call)}｜跟注門檻 {needed:.1%}｜依設定的對手範圍估算')
             self.summary.setText('行動參考：依目前跟注成本估算；尚未計入後續下注、邊池及獎金結構。')
         self.mode_notice.clear()
         self.mode_notice.hide()
@@ -458,10 +460,10 @@ class AnalysisPanel(QWidget):
         self.scenarios.setRowCount(len(scenarios))
         for row, scenario in enumerate(scenarios):
             values = [f"{scenario.get('percentage', 0)}%",
-                      f"{scenario.get('bet', scenario.get('bet_amount', 0)):,.2f}",
-                      f"{scenario.get('new_pot', 0):,.2f}",
+                      f"{money(scenario.get('bet', scenario.get('bet_amount', 0)))}",
+                      f"{money(scenario.get('new_pot', 0))}",
                       f"{scenario.get('required_equity', 0):.2%}",
-                      format(scenario['spr'], '.2f') if scenario.get('spr') is not None else '無法計算', f"{scenario.get('ev', 0):,.2f}"]
+                      format(scenario['spr'], '.2f') if scenario.get('spr') is not None else '無法計算', f"{money(scenario.get('ev', 0))}"]
             for column, value in enumerate(values):
                 self.scenarios.setItem(row, column, QTableWidgetItem(value))
         self.apply_display_options(self.display_options)
@@ -538,7 +540,7 @@ class AnalysisPanel(QWidget):
         elif '牌背' in message or '持牌' in message:
             solution='等待牌背動畫結束；若持續出現，放大牌桌並確認選對牌桌。'
         elif '金額' in message or '下注' in message or '籌碼' in message or '跟注' in message or '底池' in message:
-            solution='等待下注動畫結束；若仍讀不到，放大牌桌並切換成籌碼顯示。'
+            solution='等待下注動畫結束；若仍讀不到，放大牌桌並切換成大盲數顯示。'
         elif '底牌' in message or '牌面' in message:
             solution='等待發牌動畫結束；若仍未確認，放大牌桌並檢查是否有遊戲內視窗遮住牌。'
         else:
@@ -573,7 +575,7 @@ class AnalysisPanel(QWidget):
         self.sizing_label.setText('下注建議：資料未確認，暫停建議金額')
         self.action_label.show()
         self.set_action('等待確認','#9a6500')
-        reasons=(('跟注額','跟注金額'),('自身籌碼','自己的籌碼'),('底池','底池'),
+        reasons=(('跟注額','跟注金額'),('自身籌碼','自己的大盲數'),('自身大盲數','自己的大盲數'),('底池','底池'),
             ('底牌','底牌'),('牌面','牌面'),('持牌','持牌人數'),('下注額','各座下注'),('視窗','牌桌視窗'))
         missing=[label for keyword,label in reasons if keyword in message]
         if missing:

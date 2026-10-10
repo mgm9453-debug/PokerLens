@@ -32,6 +32,8 @@ class AnalysisResult:
     beating_hand_types: list[str] = field(default_factory=list)
     threats_details: dict = field(default_factory=dict)
     starting_hand: dict = field(default_factory=dict)
+    amount_unit: str = '籌碼'
+    amount_rounding_ev_bound: float = 0.0
     def to_dict(self): return asdict(self)
 
 class AnalysisEngine:
@@ -74,4 +76,4 @@ class AnalysisEngine:
             threat_details['beating_hand_types']=threat_types
             threat_details['label']='翻牌前尚無當前成牌；終局觀察：模擬觀察到的終局擊敗牌型，不是完整可能清單或出現機率；兩千次快速估算與後續增加次數可能觀察到不同類型'
         if cancel and cancel(): raise InterruptedError('分析已取消')
-        return AnalysisResult(evaluate_hand(state.hero_cards,state.board).category,equity.hero_equity,equity.opponents_equity,equity.tie_probability,needed,needed,call_ev(equity.hero_equity,state.pot,state.call_amount),spr(state.effective_stack,state.pot),outs.count,[asdict(r) for r in simulate_bets(state.pot,state.effective_stack,equity.hero_equity,state.fold_probability)],equity.iterations_completed,time.time(),equity.to_dict(),asdict(outs),simulation_seed=self.seed,requested_simulations=equity.iterations_completed if cached_equity is not None else self.iterations,beating_hand_types=threat_types,threats_details=threat_details,starting_hand=guide)
+        return AnalysisResult(evaluate_hand(state.hero_cards,state.board).category,equity.hero_equity,equity.opponents_equity,equity.tie_probability,needed,needed,call_ev(equity.hero_equity,state.pot,state.call_amount),spr(state.effective_stack,state.pot),outs.count,[asdict(r) for r in simulate_bets(state.pot,state.effective_stack,equity.hero_equity,state.fold_probability)],equity.iterations_completed,time.time(),equity.to_dict(),asdict(outs),simulation_seed=self.seed,requested_simulations=equity.iterations_completed if cached_equity is not None else self.iterations,beating_hand_types=threat_types,threats_details=threat_details,starting_hand=guide,amount_unit=state.amount_unit,amount_rounding_ev_bound=(equity.hero_equity*state.amount_resolution.get('pot',0)+(1-equity.hero_equity)*state.amount_resolution.get('call_amount',0))/2 if state.amount_unit=='BB' else 0)

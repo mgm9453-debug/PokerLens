@@ -320,7 +320,9 @@ def test_native_amount_validation_reads_moved_textured_pot():
     target = crop(image, (region.x, region.y, region.width, region.height))
     source = crop(original, POT_ROI)
     target[:] = cv2.resize(source, (target.shape[1], target.shape[0]))
-    result = validate(profile({'pot': region}, size=(image.shape[1], image.shape[0])), [image] * 3)
+    from vision.ocr_engine import NativeOcrEngine
+    # 舊籌碼樣本只驗證木紋文字辨識，明確指定樣本原單位。
+    result = validate(profile({'pot': region}, size=(image.shape[1], image.shape[0])), [image] * 3, NativeOcrEngine())
     assert result.valid, result.errors
     assert result.readings['pot'] == '127366'
 

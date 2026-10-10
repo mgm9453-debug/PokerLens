@@ -31,13 +31,13 @@ def region_labels(layout=8) -> dict[str, str]:
         'board': '公共牌',
         'pot': '底池金額',
         'call_amount': '跟注金額',
-        'hero_stack': '自身剩餘籌碼',
+        'hero_stack': '自身剩餘大盲數',
     }
     for seat in seats:
         subject = '自身' if seat == 0 else f'座位 {seat}'
         labels[f'bet_{seat}'] = f'{subject}下注金額'
         if seat != 0:
-            labels[f'stack_{seat}'] = f'{subject}剩餘籌碼'
+            labels[f'stack_{seat}'] = f'{subject}剩餘大盲數'
             labels[f'back_{seat}'] = f'{subject}牌背'
         labels[f'chips_{seat}'] = f'{subject}下注籌碼區域（選填）'
     return labels

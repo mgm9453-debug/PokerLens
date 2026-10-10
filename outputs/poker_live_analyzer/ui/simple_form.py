@@ -1,3 +1,4 @@
+from poker.amount_units import state_in_bb
 from copy import deepcopy
 from uuid import uuid4
 from PySide6.QtCore import Signal, Qt
@@ -84,7 +85,7 @@ class SimpleHandForm(QWidget):
     def __init__(self):
         super().__init__()
         self.hand_id = uuid4().hex
-        self.base = {}
+        self.base = {'amount_unit':'BB','big_blind':1}
         self.loaded_range_index = 0
         layout = QVBoxLayout(self)
         title = QLabel('① 選牌')
@@ -110,9 +111,9 @@ class SimpleHandForm(QWidget):
         self.pot = self.money_input()
         self.call = self.money_input()
         self.stack = self.money_input()
-        fields.addRow('目前底池', self.pot)
-        fields.addRow('需要跟注', self.call)
-        fields.addRow('有效籌碼', self.stack)
+        fields.addRow('目前底池（大盲數）', self.pot)
+        fields.addRow('需要跟注（大盲數）', self.call)
+        fields.addRow('有效大盲數', self.stack)
         self.opponents = QSpinBox()
         self.opponents.setRange(1, 8)
         self.opponents.setMinimumHeight(34)
@@ -125,7 +126,7 @@ class SimpleHandForm(QWidget):
         self.range_choice.currentIndexChanged.connect(self.edited)
         fields.addRow('對手範圍', self.range_choice)
         layout.addLayout(fields)
-        hint = QLabel('底池須包含對手已下注金額。\n有效籌碼是你與對手可共同投入的較小籌碼。')
+        hint = QLabel('底池須包含對手已下注金額。\n有效大盲數是你與對手可共同投入的較小值，所有金額皆以大盲數填寫。')
         hint.setStyleSheet('color: #647987;')
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -134,7 +135,9 @@ class SimpleHandForm(QWidget):
     def money_input(self):
         widget = QDoubleSpinBox()
         widget.setRange(0, 1000000000)
-        widget.setDecimals(2)
+        widget.setDecimals(4)
+        widget.setSingleStep(.1)
+        widget.setSuffix(' BB')
         widget.setGroupSeparatorShown(True)
         widget.setMinimumHeight(34)
         widget.valueChanged.connect(self.edited)
@@ -144,7 +147,7 @@ class SimpleHandForm(QWidget):
         return {button.card for button in self.hero + self.board if button is not selected and button.card}
 
     def clear(self):
-        self.base = {}
+        self.base = {'amount_unit':'BB','big_blind':1}
         self.hand_id = uuid4().hex
         for button in self.hero + self.board:
             button.set_card(None)
@@ -156,6 +159,7 @@ class SimpleHandForm(QWidget):
         self.loaded_range_index = 0
 
     def load_data(self, data):
+        data=state_in_bb(data)
         self.base = deepcopy(data)
         self.hand_id = data.get('hand_id') or self.hand_id
         for buttons, values in [(self.hero, data.get('hero_cards', [])),
@@ -243,7 +247,7 @@ class SimpleHandForm(QWidget):
         data.update(hero_cards=hero, community_cards=board, hero_seat=hero_seat,
                     pot=pot, call_amount=call, hero_stack=max(data.get('hero_stack', 0), stack),
                     effective_stack=stack, players=players, ranges=ranges, hand_id=self.hand_id,
-                    source='手動', street='')
+                    source='手動', street='', amount_unit='BB',big_blind=1,amount_resolution={})
         if hero != self.base.get('hero_cards', []) or board != self.base.get('community_cards', self.base.get('board', [])):
             data.update(showdown=False, hand_complete=False)
         return data

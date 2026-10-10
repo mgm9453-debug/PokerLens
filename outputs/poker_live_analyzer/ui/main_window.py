@@ -1,3 +1,4 @@
+from poker.amount_units import format_amount, state_in_bb
 import json
 import logging
 import math
@@ -29,7 +30,7 @@ from vision.worker import VisionWorker
 
 
 def demo_data():
-    return {
+    return state_in_bb({
         'hero_cards': ['As', 'Ks'], 'community_cards': ['Ah', '8s', '3s'],
         'hero_seat': 1, 'pot': 2000, 'call_amount': 800,
         'hero_stack': 8000, 'effective_stack': 8000,
@@ -40,7 +41,7 @@ def demo_data():
             {'seat': 2, 'position': '莊家', 'stack': 8000, 'current_bet': 800,
              'total_invested': 900, 'action': '下注', 'folded': False, 'confidence': {}}],
         'ranges': {'2': 'standard'}, 'street': ''
-    }
+    })
 
 
 def editable_state(data):
@@ -835,16 +836,16 @@ class MainWindow(QMainWindow):
                 self.analysis.invalidate('下注金額已改變，正在確認新的跟注額；舊建議已撤回')
                 self.overlay.invalidate('下注金額已變動，舊建議已撤回')
         bb=getattr(amounts,'bb_display',False)
-        self.amount_unit_notice.setText('牌桌目前顯示大盲單位，請切換成籌碼顯示。換算可能有四捨五入誤差。' if bb else '')
-        self.amount_unit_notice.setVisible(bb)
+        self.amount_unit_notice.setText('金額以大盲數讀取與計算；請將牌桌金額設定為大盲數顯示。' if not bb else '')
+        self.amount_unit_notice.setVisible(not bb)
         def number(value):
-            return f'{value:,.0f}' if value is not None else '辨識中'
+            return format_amount(value,getattr(amounts,'amount_unit','籌碼')) if value is not None else '辨識中'
         if amounts.paused:
-            self.live_numbers.setText(f'牌局休息中\n自身籌碼 {number(amounts.hero_stack)}\n恢復發牌後會自動更新')
+            self.live_numbers.setText(f'牌局休息中\n自身大盲數 {number(amounts.hero_stack)}\n恢復發牌後會自動更新')
             return
-        stacks='　'.join(f'{seat}位 {value:,.0f}' for seat,value in amounts.seat_stacks.items()
+        stacks='　'.join(f'{seat}位 {format_amount(value,getattr(amounts,'amount_unit','籌碼'))}' for seat,value in amounts.seat_stacks.items()
             if seat!=0 and amounts.field_reliable.get(f'stack_{seat}',False))
-        self.live_numbers.setText(f'底池 {number(amounts.pot)}　跟注 {number(amounts.call_amount)}　自己 {number(amounts.hero_stack)}\n對手籌碼：{stacks or "確認中"}')
+        self.live_numbers.setText(f'底池 {number(amounts.pot)}　跟注 {number(amounts.call_amount)}　自己 {number(amounts.hero_stack)}\n對手大盲數：{stacks or "確認中"}')
 
     def accept_auto_view(self, token, observation):
         if token != self.auto_generation or not self.auto_active:
@@ -853,10 +854,10 @@ class MainWindow(QMainWindow):
         if amounts.reliable:
             hero = observation['hero_active']
             count = f'對手持牌 {len(players.active_seats)} 人；自身牌面待確認' if hero is None else f'仍持牌 {len(players.active_seats)+int(hero)} 人'
-            bets = '　'.join(f'座位{s}：{amount:,.0f}' for s, amount in amounts.seat_bets.items() if amount)
-            stacks='　'.join(f'{s}位 {amounts.seat_stacks[s]:,.0f}' for s in players.active_seats
+            bets = '　'.join(f'座位{s}：{format_amount(amount,getattr(amounts,'amount_unit','籌碼'))}' for s, amount in amounts.seat_bets.items() if amount)
+            stacks='　'.join(f'{s}位 {format_amount(amounts.seat_stacks[s],getattr(amounts,'amount_unit','籌碼'))}' for s in players.active_seats
                 if s in amounts.seat_stacks and amounts.field_reliable.get(f'stack_{s}',False))
-            self.live_numbers.setText(f'底池 {amounts.pot:,.0f}　跟注 {amounts.call_amount:,.0f}　自己 {amounts.hero_stack:,.0f}\n對手籌碼：{stacks or "確認中"}｜{count}')
+            self.live_numbers.setText(f'底池 {format_amount(amounts.pot,getattr(amounts,'amount_unit','籌碼'))}　跟注 {format_amount(amounts.call_amount,getattr(amounts,'amount_unit','籌碼'))}　自己 {format_amount(amounts.hero_stack,getattr(amounts,'amount_unit','籌碼'))}\n對手大盲數：{stacks or "確認中"}｜{count}')
 
     def accept_auto_cards(self, token, detection):
         if token != self.auto_generation or not self.auto_active:
@@ -998,9 +999,9 @@ class MainWindow(QMainWindow):
             self.replay_mode = False
             self.render_state(state.to_dict())
             active = [p for p in state.players if p.active and not p.folded]
-            bets = '　'.join(f'座位{p.seat}：{p.current_bet:,.0f}' for p in state.players if p.current_bet)
-            stacks='　'.join(f'{p.seat}位 {p.stack:,.0f}' for p in active if p.seat!=state.hero_seat and p.stack_known)
-            self.live_numbers.setText(f'底池 {state.pot:,.0f}　跟注 {state.call_amount:,.0f}　自己 {state.hero_stack:,.0f}\n對手籌碼：{stacks or "確認中"}｜對手 {len(active)-1} 人')
+            bets = '　'.join(f'座位{p.seat}：{format_amount(p.current_bet,state.amount_unit)}' for p in state.players if p.current_bet)
+            stacks='　'.join(f'{p.seat}位 {format_amount(p.stack,state.amount_unit)}' for p in active if p.seat!=state.hero_seat and p.stack_known)
+            self.live_numbers.setText(f'底池 {format_amount(state.pot,state.amount_unit)}　跟注 {format_amount(state.call_amount,state.amount_unit)}　自己 {format_amount(state.hero_stack,state.amount_unit)}\n對手大盲數：{stacks or "確認中"}｜對手 {len(active)-1} 人')
             if event:
                 self.repository.save_event(event)
                 self.editor.setPlainText(json.dumps(editable_state(state.to_dict()), ensure_ascii=False, indent=2))
@@ -1037,7 +1038,12 @@ class MainWindow(QMainWindow):
         self.simple_form.blockSignals(True)
         self.settings.fold.blockSignals(True)
         try:
-            self.simple_form.load_data(data)
+            try:
+                self.simple_form.load_data(data)
+            except ValueError:
+                # 舊紀錄缺少盲注時仍可檢視，但不能冒用為大盲數輸入。
+                self.simple_form.clear()
+                self.statusBar().showMessage('舊牌局缺少大盲基準，手動輸入已重設；原紀錄保留')
             self.settings.fold.setValue(data.get('fold_probability', 0))
         finally:
             self.simple_form.blockSignals(False)
@@ -1048,6 +1054,7 @@ class MainWindow(QMainWindow):
         try:
             data = json.loads(self.editor.toPlainText())
             data['source'] = '手動'
+            data=state_in_bb(data)
             state = PokerTableState.from_dict(data)
             event = self.detector.update(state)
             if event is None:
@@ -1078,7 +1085,7 @@ class MainWindow(QMainWindow):
             self.show_error(str(error))
 
     def render_state(self, data):
-        self.current.setText(f"自身底牌：{' '.join(data.get('hero_cards', []))}\n公共牌：{' '.join(data.get('community_cards', []))}\n街次：{data.get('street', '')}　玩家：{len(data.get('players', []))}\n底池：{data.get('pot', 0):,.2f}　跟注額：{data.get('call_amount', 0):,.2f}")
+        self.current.setText(f"自身底牌：{' '.join(data.get('hero_cards', []))}\n公共牌：{' '.join(data.get('community_cards', []))}\n街次：{data.get('street', '')}　玩家：{len(data.get('players', []))}\n底池：{format_amount(data.get('pot',0),data.get('amount_unit','籌碼'))}　跟注額：{format_amount(data.get('call_amount',0),data.get('amount_unit','籌碼'))}")
 
     def start_analysis(self):
         data=self.detector.state.to_dict()
@@ -1135,6 +1142,7 @@ class MainWindow(QMainWindow):
         if self.auto_active and not self.check_live_freshness():return
         self.result = result.to_dict()
         self.result['pot']=self.detector.state.pot
+        self.result['amount_unit']=self.detector.state.amount_unit
         self.result['hero_cards']=list(self.detector.state.hero_cards)
         self.result['community_cards']=list(self.detector.state.community_cards)
         self.result['preflop_context']=self.detector.state.decision_context.get('preflop',

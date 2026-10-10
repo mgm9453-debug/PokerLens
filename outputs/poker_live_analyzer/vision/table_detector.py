@@ -94,6 +94,8 @@ class TableAmounts:
     core_reliable: bool = False
     hero_turn: bool | None = None
     can_raise: bool | None = None
+    amount_unit: str = '籌碼'
+    amount_resolution: dict[str,float] = field(default_factory=dict)
 
 class TableDetector:
     def __init__(self,stable_frames=3,ocr=None,pot_roi=POT_ROI,hero_stack_roi=HERO_STACK_ROI,call_roi=CALL_ROI,bet_rois=None,stack_rois=None,chip_rois=None,big_blind=None,seat_layout=None,exact_fields=()):
@@ -151,15 +153,21 @@ class TableDetector:
         if frame is None or not isinstance(frame,np.ndarray) or frame.ndim!=3 or frame.shape[2]!=3 or not frame.size:
             self.reset()
             return TableAmounts(None,None,None,{},False,'缺少有效牌桌影格',(perf_counter()-started)*1000)
+        from poker.amount_units import rounding_budget, format_amount
+        unit=getattr(self.ocr,'amount_unit','籌碼')
+        resolutions={}
         values={}
         if hasattr(self.ocr,'bb_display'): self.ocr.bb_display=False
         for key,roi in [('pot',self.pot_roi),('hero_stack',self.hero_stack_roi),('call_amount',self.call_roi)]:
             reader=self.ocr.read_pot_amount if key=='pot' and hasattr(self.ocr,'read_pot_amount') else self.ocr.read_amount
             values[key]=await reader(crop(frame,roi))
+            resolutions[key]=getattr(self.ocr,'last_resolution',0)
         if values['pot'] is None and 'pot' not in self._exact_fields and hasattr(self.ocr,'locate_pot'):
             values['pot']=await self.ocr.locate_pot(crop(frame,(.25,.18,.5,.42)))
+            resolutions['pot']=getattr(self.ocr,'last_resolution',0)
         if values['call_amount'] is None and self.call_roi==CALL_ROI and 'call_amount' not in self._exact_fields:
             values['call_amount']=await self.ocr.read_amount(crop(frame,CALL_NUMBER_ROI))
+            resolutions['call_amount']=getattr(self.ocr,'last_resolution',0)
         if values['call_amount'] is None and 'call_amount' in self._exact_fields and hasattr(self.ocr,'recognize'):
             text=await self.ocr.recognize(cv2.resize(crop(frame,self.call_roi),None,fx=3,fy=3,interpolation=cv2.INTER_CUBIC))
             label=''.join(text.text.lower().split()) if text.available else ''
@@ -169,6 +177,7 @@ class TableDetector:
         for seat,roi in self.bet_rois.items():
             region=crop(frame,roi)
             value=await self.ocr.read_amount(region)
+            resolution=getattr(self.ocr,'last_resolution',0)
             if isinstance(self.ocr,NativeOcrEngine) and f'bet_{seat}' not in self._exact_fields:
                 gray=cv2.cvtColor(region,cv2.COLOR_BGR2GRAY)
                 edge=max(1,round(gray.shape[1]*.06))
@@ -181,15 +190,19 @@ class TableDetector:
                     left=max(0,x-.025)
                     wider=(left,y,min(width+.055,1-left),height)
                     complete=await self.ocr.read_amount(crop(frame,wider))
-                    if complete is not None:value=complete
+                    if complete is not None:
+                        value=complete
+                        resolution=getattr(self.ocr,'last_resolution',0)
             chip_roi=self.chip_rois.get(seat)
             no_chip=chip_roi is not None and not chip_evidence(crop(frame,chip_roi))
             if no_chip and f'chips_{seat}' in self._exact_fields:
                 chip_region=crop(frame,chip_roi)
                 no_chip=empty_bet_evidence(chip_region) or textured_empty_bet(chip_region,chip_region)
-            if value is None and no_chip and empty_bet_evidence(region): value=0.0
+            if value is None and no_chip and empty_bet_evidence(region): value=0.0; resolution=0
             if value is None and chip_roi is not None and textured_empty_bet(region,crop(frame,chip_roi)):
                 value=0.0
+                resolution=0
+            resolutions[f'bet_{seat}']=resolution if value is not None else 0
             values[f'bet_{seat}']=value
             if value is not None: bets[seat]=value
         for seat,roi in self.stack_rois.items():
@@ -200,6 +213,7 @@ class TableDetector:
                 if label in ('allin','all-in','全下'):
                     value=0.0
                     all_in.append(seat)
+            resolutions[f'stack_{seat}']=resolutions.get('hero_stack',0) if seat==0 else getattr(self.ocr,'last_resolution',0) if value else 0
             values[f'stack_{seat}']=value
             if value is not None: stacks[seat]=value
         # 按鈕未顯示數字時，只從全部已讀下注與自身籌碼推導跟注差額。
@@ -207,15 +221,20 @@ class TableDetector:
         if (values['call_amount'] is None and 'call_amount' not in self._exact_fields
                 and values['hero_stack'] is not None and set(bets)==set(self.bet_rois)):
             values['call_amount']=min(values['hero_stack'],max(0,max(bets.values())-bets[0]))
+            highest_seat=max(bets,key=bets.get)
+            resolutions['call_amount']=(resolutions.get('hero_stack',0) if values['call_amount']==values['hero_stack'] else resolutions.get(f'bet_{highest_seat}',0)+resolutions.get('bet_0',0)) if unit=='BB' else 0
         elif (values['call_amount'] is not None and values['hero_stack'] is not None and set(bets)==set(self.bet_rois)
                 and isinstance(self.ocr,NativeOcrEngine)):
             expected=min(values['hero_stack'],max(0,max(bets.values())-bets[0]))
-            if abs(values['call_amount']-expected)>.01:
+            highest_seat=max(bets,key=bets.get)
+            tolerance=rounding_budget(unit,resolutions,'call_amount','hero_stack') if expected==values['hero_stack'] else rounding_budget(unit,resolutions,'call_amount','bet_0',f'bet_{highest_seat}')
+            if abs(values['call_amount']-expected)>tolerance:
                 # 不直接把小數點改成千分位；重新讀筆畫並與獨立下注差額核對。
                 for roi in ([self.call_roi,CALL_NUMBER_ROI] if self.call_roi==CALL_ROI and 'call_amount' not in self._exact_fields else [self.call_roi]):
                     confirmed=await self.ocr.read_amount_matching(crop(frame,roi),expected)
                     if confirmed is not None:
                         values['call_amount']=confirmed
+                        resolutions['call_amount']=getattr(self.ocr,'last_resolution',0)
                         break
         reliable_fields={key:self.stable(key,value) for key,value in values.items()}
         missing=[key for key in ('pot','hero_stack','call_amount') if values[key] is None]
@@ -223,14 +242,19 @@ class TableDetector:
         bets_stable=all(reliable_fields[f'bet_{seat}'] for seat in self.bet_rois)
         # 尚未確認的單幀讀值不能否定可靠底池；確認後的下注仍提供一致性下限。
         confirmed_total=sum(value for seat,value in bets.items() if reliable_fields.get(f'bet_{seat}',False))
-        consistent=values['pot'] is not None and values['pot']+1e-9>=confirmed_total and values['hero_stack'] is not None and values['call_amount'] is not None and values['call_amount']<=values['hero_stack']
+        pot_tolerance=rounding_budget(unit,resolutions,'pot',*[f'bet_{seat}' for seat in bets if reliable_fields.get(f'bet_{seat}',False)]) if unit=='BB' else 1e-9
+        consistent=values['pot'] is not None and values['pot']+pot_tolerance>=confirmed_total and values['hero_stack'] is not None and values['call_amount'] is not None and values['call_amount']<=values['hero_stack']
         reliable=core_stable and bets_stable and consistent
         missing_bets=[str(s) for s in self.bet_rois if values[f'bet_{s}'] is None]
-        reason='缺少必要金額，等待辨識：'+ '、'.join({'pot':'底池','hero_stack':'自身籌碼','call_amount':'跟注額'}[key] for key in missing) if missing else '無法確認下注額或空下注區的座位：'+ '、'.join(missing_bets) if missing_bets else '金額不一致，拒絕更新' if not consistent else '等待連續多幀金額一致' if not reliable else ''
+        reason='缺少必要金額，等待辨識：'+ '、'.join({'pot':'底池','hero_stack':'自身大盲數','call_amount':'跟注額'}[key] for key in missing) if missing else '無法確認下注額或空下注區的座位：'+ '、'.join(missing_bets) if missing_bets else '金額不一致，拒絕更新' if not consistent else '等待連續多幀金額一致' if not reliable else ''
         if not missing and not missing_bets and not consistent:
-            reason=(f'金額不一致：底池 {values["pot"]:,.0f}、桌上下注合計 {sum(bets.values()):,.0f}'
+            reason=(f'金額不一致：底池 {format_amount(values["pot"],unit)}、桌上下注合計 {format_amount(sum(bets.values()),unit)}'
                 if values['pot']+1e-9<sum(bets.values()) else
-                f'金額不一致：跟注 {values["call_amount"]:,.0f}、自己剩餘籌碼 {values["hero_stack"]:,.0f}')
+                f'金額不一致：跟注 {format_amount(values["call_amount"],unit)}、自己剩餘大盲數 {format_amount(values["hero_stack"],unit)}')
+        if unit=='BB' and isinstance(self.ocr,NativeOcrEngine) and not self.ocr.bb_display:
+            reliable=False
+            core_stable=False
+            reason='尚未確認大盲數顯示，請將牌桌金額切換為大盲數顯示'
         paused=False
         if button_missing and self.sync_dealing(frame):
             paused=True
@@ -253,4 +277,4 @@ class TableDetector:
         raise_stable=self.stable('can_raise',action.can_raise)
         hero_turn=action.hero_turn if turn_stable else None
         return TableAmounts(values['pot'],values['hero_stack'],values['call_amount'],bets,reliable,reason,(perf_counter()-started)*1000,stacks,reliable_fields,paused,getattr(self.ocr,'bb_display',False),tuple(seat for seat in all_in if reliable_fields.get(f'stack_{seat}',False)),tuple(sorted(self.bet_rois)),
-            core_stable and consistent and not paused,hero_turn,action.can_raise if hero_turn is True and raise_stable else None)
+            core_stable and consistent and not paused,hero_turn,action.can_raise if hero_turn is True and raise_stable else None,unit,resolutions)
