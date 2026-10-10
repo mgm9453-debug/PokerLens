@@ -18,7 +18,8 @@ def test_waiting_does_not_move_matrix_or_keep_old_probabilities():
     assert not panel.sizing_label.isHidden()
     assert panel.summary_scroll.isHidden()
     assert '等待資料確認' in panel.action_label.text()
-    assert 's＝同花' in panel.threat_matrix.caption.text()
+    assert panel.threat_matrix.caption.text()==''
+    assert all(label in panel.threat_matrix.legend.text() for label in ('加注','跟注','過牌','棄牌'))
     assert not panel.threat_matrix.isEnabled()
     assert panel.threat_matrix.table.item(5,5).background().color().name()=='#34373b'
     panel.render(result);app.processEvents()

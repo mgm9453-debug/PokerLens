@@ -36,11 +36,16 @@ class ThreatMatrix(QWidget):
     def __init__(self,preflop_path=None):
         super().__init__()
         layout=QVBoxLayout(self)
-        layout.setContentsMargins(0,4,0,4)
-        self.caption=QLabel('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
+        layout.setContentsMargins(0,0,0,0)
+        layout.setSpacing(2)
+        self.caption=QLabel('')
         self.caption.setWordWrap(True)
         self.caption.setStyleSheet('font-size:14px;color:white;')
         layout.addWidget(self.caption)
+        self.legend=QLabel()
+        self.legend.setWordWrap(True)
+        self.legend.setStyleSheet('font-size:14px;color:white;')
+        layout.addWidget(self.legend)
         self.table=QTableWidget(13,13)
         from .reference_style import RoundedCellDelegate
         self.table.setItemDelegate(RoundedCellDelegate(self.table))
@@ -65,7 +70,7 @@ class ThreatMatrix(QWidget):
         self.table.setMinimumSize(13*32+28+4,13*22+30+4)
         self.table.setStyleSheet('QTableWidget {background:#08090A;color:#142433;gridline-color:#348A69;font-size:14px;font-weight:500;border:1px solid #9B7133;} QHeaderView::section {background:#EFC67A;color:#17120A;font-weight:600;padding:1px;border:1px solid #08090A;border-radius:4px;} QTableWidget::item {padding:0px;}')
         layout.addWidget(self.table,1)
-        self.note=QLabel('上三角：同花；下三角：不同花；對角線：對子。比較所有合法底牌，不代表對手實際持牌或機率。')
+        self.note=QLabel('')
         self.note.setWordWrap(True)
         self.note.hide()
         self.background='#00cc66'
@@ -86,18 +91,19 @@ class ThreatMatrix(QWidget):
 
     def render(self,hero,board):
         self.preflop_context=None
+        self.caption.clear()
+        self.caption.hide()
+        self.update_legend(False)
         self.table.horizontalHeader().setStyleSheet('')
         self.table.verticalHeader().setStyleSheet('')
         self.setEnabled(True)
         self.table.setToolTip('依目前已確認牌面比較；標示色代表至少一種合法花色組合能贏你。')
         key=(tuple(hero),tuple(board))
         if key==self.last_key:
-            if len(hero)==2 and len(board) in (3,4,5):self.caption.setText('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
             return
         self.last_key=key
         cells=winning_cells(*key)
         ready=len(hero)==2 and len(board) in (3,4,5)
-        self.caption.setText('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子' if ready else 's＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
         for row,a in enumerate(RANKS):
             for column,b in enumerate(RANKS):
                 name=a+b if row==column else a+b+'s' if row<column else b+a+'o'
@@ -132,11 +138,14 @@ class ThreatMatrix(QWidget):
             'vs_4bet':'面對四次下注','vs_limp':'前面有人跟入','bb_option':'大盲可過牌'}
         spot=scenarios.get(context.get('scenario'),'情境確認中')
         status='已匹配範圍' if chart else '無對應範圍'
-        self.caption.setText(f'{position}｜{own or "底牌確認中"}{depth}｜{spot}｜{status}\ns＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
+        self.caption.setText(f'{position}｜{own or "底牌確認中"}{depth}｜{spot}｜{status}')
+        self.caption.show()
+        self.update_legend(True)
         if not own and not context.get('position'):
-            self.caption.setText('s＝同花｜o＝不同花｜兩個相同點數＝口袋對子')
-        self.table.horizontalHeader().setStyleSheet('QHeaderView::section {background:#34373b;color:white;border:1px solid #08090a;}')
-        self.table.verticalHeader().setStyleSheet('QHeaderView::section {background:#34373b;color:white;border:1px solid #08090a;}')
+            self.caption.clear()
+            self.caption.hide()
+        self.table.horizontalHeader().setStyleSheet('')
+        self.table.verticalHeader().setStyleSheet('')
         self.table.setToolTip(f'來源：{chart["source"]}；求解：{chart["solver"]}' if chart else self.range_error or context.get('reason','尚無條件相符且來源已核實的錦標賽範圍'))
         labels={'raise':'加注','call':'跟注','fold':'棄牌','check':'過牌'}
         for row,a in enumerate(RANKS):
@@ -162,6 +171,17 @@ class ThreatMatrix(QWidget):
                 item.setData(Qt.UserRole+2,name==own)
                 item.setToolTip(f'{name}：'+('／'.join(details) if details else '無對應策略資料，不代表棄牌'))
                 self.table.setItem(row,column,item)
+
+    def update_legend(self,preflop):
+        """圖例放在圖表上方；文字與配色一致，不混用行動與牌力顏色。"""
+        if preflop:
+            entries=[(self.preflop_colors['preflop_'+key],label) for key,label in
+                (('raise','加注'),('call','跟注'),('check','過牌'),('fold','棄牌'),('background','無策略資料'))]
+        else:
+            from .theme import COLORS
+            entries=[(COLORS['matrix'] if self.background=='#00cc66' else self.background,'一般牌型'),
+                (COLORS['winner'] if self.winner=='#ef4444' else self.winner,'目前能贏你的牌')]
+        self.legend.setText('　'.join(f'<span style="background-color:{color};color:{self.text_color(color)};"> {label} </span>' for color,label in entries))
 
     def apply_preflop_colors(self,options):
         changed={key:options[key] for key in self.preflop_colors if key in options and options[key]!=self.preflop_colors[key]}
