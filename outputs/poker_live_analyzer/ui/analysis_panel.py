@@ -185,7 +185,7 @@ class AnalysisPanel(QWidget):
         self._fit_previous()
 
     def _fit_previous(self):
-        height=max(110,self.previous_label.heightForWidth(max(100,self.previous_label.width())))
+        height=max(66,self.previous_label.heightForWidth(max(100,self.previous_label.width())))
         if self.previous_label.height()!=height:self.previous_label.setFixedHeight(height)
 
     def eventFilter(self,watched,event):
@@ -210,6 +210,30 @@ class AnalysisPanel(QWidget):
 
     def enable_fixed_layout(self):
         self.fixed_layout=True
+        if self.dark_theme and not hasattr(self,'decision_card'):
+            from .reference_style import DecisionCard
+            self.decision_card=DecisionCard()
+            hero_layout=QHBoxLayout(self.decision_card)
+            hero_layout.setContentsMargins(14,14,14,14)
+            hero_layout.setSpacing(12)
+            action_column=QVBoxLayout()
+            action_title=QLabel('行動建議・依目前資料估算')
+            action_title.setStyleSheet('color:#efd59c;font-size:15px;background:transparent;')
+            action_column.addWidget(action_title)
+            for widget in (self.action_label,self.probabilities,self.sizing_label):
+                self.layout().removeWidget(widget)
+            self.action_label.kind=None
+            self.action_label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+            action_column.addWidget(self.action_label,1)
+            action_column.addWidget(self.sizing_label)
+            hero_layout.addLayout(action_column,3)
+            hero_layout.addWidget(self.probabilities,2)
+            from PySide6.QtWidgets import QSizePolicy
+            for label in (self.win_label,self.tie_label):
+                label.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
+                label.setMinimumWidth(0)
+            self.probabilities.setMinimumWidth(0)
+            self.layout().insertWidget(1,self.decision_card)
         self.layout().setSpacing(10)
         self.layout().setAlignment(Qt.Alignment())
         for widget in (self.action_label,self.probabilities,self.issue_label,self.sizing_label,self.card_strip,self.summary_scroll):
@@ -239,11 +263,12 @@ class AnalysisPanel(QWidget):
         if self.dark_theme and self.fixed_layout:
             scale=max(.75,min(1.3,self.width()/700,self.window().height()/960))
             self._view_scale=scale
-            self.action_label.setFixedHeight(round(70*scale))
-            self.probabilities.setFixedHeight(round(80*scale))
+            self.action_label.setFixedHeight(round(88*scale))
+            self.decision_card.setFixedHeight(round(180*scale))
+            self.probabilities.setFixedHeight(round(142*scale))
             self.issue_label.setFixedHeight(round(68*scale))
-            self.sizing_label.setFixedHeight(round(48*scale))
-            self.layout().setSpacing(round(3*scale))
+            self.sizing_label.setFixedHeight(round(44*scale))
+            self.layout().setSpacing(round(8*scale))
             self.apply_display_options(self.display_options)
         wide=self.dark_theme and self.width()>=800
         self.summary_layout.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
@@ -488,6 +513,9 @@ class AnalysisPanel(QWidget):
         self.action_label.setStyleSheet(card_style("#FFFFFF" if role=="wait_color" else color,size,True,True) if self.dark_theme else
             f'font-size:{size}px;font-weight:500;color:{color};background:{background};padding:14px;border:1px solid {color};border-radius:16px;')
 
+        if self.dark_theme and hasattr(self,'decision_card'):
+            self.action_label.setStyleSheet(f'color:{"#F4DCA4" if role=="wait_color" else color};font-size:{size}px;font-weight:600;background:transparent;border:0;padding:0;')
+
     def apply_display_options(self,options):
         self.display_options=dict(options)
         from .action_palette import action_color,readable_color
@@ -512,6 +540,8 @@ class AnalysisPanel(QWidget):
             self.sizing_label.setStyleSheet(card_style(COLORS['text'],max(13,round(16*self._view_scale))).replace('padding:14px','padding:7px 12px'))
             self.issue_label.setStyleSheet(card_style(COLORS['text'],max(13,round(15*self._view_scale))).replace('padding:14px','padding:7px 12px'))
 
+        if self.dark_theme and hasattr(self,'decision_card'):
+            self.sizing_label.setStyleSheet('color:#FFFFFF;font-size:13px;background:transparent;border:0;padding:0;')
         role=self.action_label.property('role_color')
         default={'call_color':'#087d55','fold_color':'#c42b36','check_color':'#1765aa','raise_color':'#df5969','wait_color':'#9a6500'}.get(role,'#9a6500')
         self.set_action(self.action_label.text(),default)

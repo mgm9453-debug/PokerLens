@@ -21,14 +21,6 @@ class ReferenceLabel(QLabel):
         gradient=QLinearGradient(rect.topLeft(),rect.bottomRight())
         gradient.setColorAt(0,QColor('#242322'));gradient.setColorAt(.45,QColor('#0D0F10'));gradient.setColorAt(1,QColor('#17191B'))
         painter.setBrush(gradient);painter.setPen(QPen(QColor('#66523A' if self.kind!='tie' else '#5D496C'),1));painter.drawRoundedRect(rect,15,15)
-        path=QPainterPath()
-        if self.kind=='action':
-            path.moveTo(0,self.height()*.74);path.cubicTo(self.width()*.25,self.height()*1.3,self.width()*.80,self.height()*1.3,self.width(),8)
-        else:
-            path.moveTo(0,self.height()*.60);path.cubicTo(self.width()*.33,self.height()*1.18,self.width()*.65,self.height()*1.13,self.width(),self.height()*.50)
-        color=QColor('#EAC272' if self.kind!='tie' else '#B38BCE')
-        for width,alpha in ((12,8),(7,14),(3,24),(1,150)):
-            color.setAlpha(alpha);painter.setPen(QPen(color,width));painter.setBrush(Qt.NoBrush);painter.drawPath(path)
         if self.kind in ('win','tie'):
             text=self.text();title='勝率' if self.kind=='win' else '平手'
             value=text.removeprefix(title).strip()
@@ -89,18 +81,43 @@ class ReferenceSurface(QWidget):
         background.setColorAt(0,QColor('#17140e'));background.setColorAt(.25,QColor('#070809'))
         background.setColorAt(.8,QColor('#090909'));background.setColorAt(1,QColor('#211a0f'))
         painter.setBrush(background);painter.setPen(Qt.NoPen);painter.drawRoundedRect(rect,20,20)
+        painter.save()
+        clip=QPainterPath();clip.addRoundedRect(rect,20,20);painter.setClipPath(clip)
+        for index in range(24):
+            x=(index*137+29)%max(1,self.width());y=(index*83)%max(1,self.height())
+            vein=QPainterPath();vein.moveTo(x,y)
+            for step in range(8):
+                x+=((index*19+step*31)%41)-20;y+=24+(step*13)%32
+                vein.lineTo(x,y)
+                if step%3==0:
+                    vein.lineTo(x+19,y+10);vein.moveTo(x,y)
+            painter.setPen(QPen(QColor(178,141,75,28 if index%3 else 65),.7));painter.drawPath(vein)
+        painter.restore()
         # 固定的細緻石紋，不隨資料更新或重繪改變。
         for side in (0,1):
-            for index in range(9):
-                x=8+index*2 if side==0 else self.width()-8-index*2
+            for index in range(28):
+                x=7+(index*13)%22 if side==0 else self.width()-7-(index*13)%22
                 y=(index*113)%max(1,self.height())
                 vein=QPainterPath();vein.moveTo(x,y)
                 vein.cubicTo(x+7,y+38,x-6,y+65,x+3,y+110)
-                painter.setPen(QPen(QColor(199,158,81,24),.6));painter.drawPath(vein)
+                painter.setPen(QPen(QColor(199,158,81,65),.7));painter.drawPath(vein)
         metal=QLinearGradient(rect.topLeft(),rect.bottomRight())
         for point,color in ((0,'#735831'),(.18,'#f3d48e'),(.45,'#58452a'),(.75,'#b38b49'),(1,'#edd09a')):
             metal.setColorAt(point,QColor(color))
         painter.setBrush(Qt.NoBrush);painter.setPen(QPen(metal,1.4));painter.drawRoundedRect(rect,20,20)
         painter.setPen(QPen(QColor(216,174,98,40),1))
         painter.drawRoundedRect(rect.adjusted(3,3,-3,-3),17,17)
+        painter.end()
+
+
+class DecisionCard(QWidget):
+    """共同決策卡片，只承載原有顯示元件。"""
+    def paintEvent(self,event):
+        painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
+        rect=QRectF(self.rect()).adjusted(1,1,-1,-1)
+        gradient=QLinearGradient(rect.topLeft(),rect.bottomRight())
+        gradient.setColorAt(0,QColor('#1e1c17'));gradient.setColorAt(.35,QColor('#090909'));gradient.setColorAt(1,QColor('#171611'))
+        metal=QLinearGradient(rect.topLeft(),rect.bottomRight())
+        for stop,color in ((0,'#ffe5a4'),(.2,'#987435'),(.5,'#ffe2a0'),(.8,'#82602c'),(1,'#efc875')):metal.setColorAt(stop,QColor(color))
+        painter.setBrush(gradient);painter.setPen(QPen(metal,1.5));painter.drawRoundedRect(rect,18,18)
         painter.end()
